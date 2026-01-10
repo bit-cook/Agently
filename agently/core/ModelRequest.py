@@ -156,6 +156,11 @@ class ModelResponseResult:
     @overload
     async def async_get_data_object(
         self,
+    ) -> "BaseModel | None": ...
+
+    @overload
+    async def async_get_data_object(
+        self,
         *,
         ensure_keys: list[str],
         key_style: Literal["dot", "slash"] = "dot",
@@ -432,6 +437,9 @@ class ModelRequest:
         self.get_data = FunctionShifter.syncify(self.async_get_data)
         self.get_data_object = FunctionShifter.syncify(self.async_get_data_object)
 
+        self.start = self.get_data
+        self.async_start = self.async_get_data
+
     def set_prompt(
         self,
         key: "PromptStandardSlot | str",
@@ -464,7 +472,7 @@ class ModelRequest:
         prompt: Any,
         mappings: dict[str, Any] | None = None,
     ):
-        self.prompt.set("system", ["YOU MUST REACT AND RESPOND AS {system.role}!"])
+        self.prompt.set("system", ["YOU MUST REACT AND RESPOND AS {system.your_role}!"])
         self.prompt.set("system.your_role", prompt, mappings)
         return self
 

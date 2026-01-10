@@ -55,6 +55,12 @@ cd Agently
 pip install -e .
 ```
 
+## Documentation
+
+- Docs Site: https://agentera.github.io/Agently/en/
+- Step-by-step tutorials: `examples/step_by_step/`
+- Auto Loop FastAPI (SSE/WS/POST, Docker-ready): `examples/step_by_step/13-auto_loop_fastapi/`
+
 ## What is Agently?
 
 Agently aims to provide an intuitive, efficient, and developer-friendly framework for GenAI application development. By deeply understanding the runtime control needs of model outputs, Agently bridges the gap between large language models and real-world applications.
@@ -70,9 +76,28 @@ We believe GenAI is not a generational replacement for current systems but a pow
 
 Our mission is to build the best developer experience (DX) for GenAI application engineers.
 
+## From Demo to Production
+
+In real teams, the hardest part is rarely “can the model answer?”—it’s whether the system can survive real traffic, real data, and real dependencies while staying testable, observable, and maintainable. Agently is built to pull LLM uncertainty back inside an engineering boundary.
+
+- **Contract-first structured outputs (framework-native, provider-agnostic)**: define schemas with `output()`, enforce critical paths with `ensure_keys`, and parse/repair in the framework pipeline (no hard dependency on provider-specific `response_format` / JSON-schema switches). This keeps interfaces stable even when you switch models or inference servers.
+- **Tool planning + traceability without vendor lock-in**: deciding whether to use a tool, selecting a tool, and building kwargs is a built-in planning step in the framework, not something that requires function-calling support. Every run leaves evidence in `extra` (`tool_logs` / tool calls) for debugging and audit.
+- **Workflow orchestration you can maintain**: TriggerFlow translates visual “low-code graphs” (n8n/Dify/Coze style) into readable code with events, branching, joins, loops, and concurrency limits. Combined with Instant-mode partial node capture + signal-driven execution, you can do real-time UX like “companion robot speaks while actions trigger”.
+- **Grounded answers with citations**: KB retrieval results are structured (`id/document/metadata`) and can be turned into enforced citations (e.g. `source_id` + `quote`) so answers are traceable and reviewable.
+
 ## Core Features Overview
 
+These are the production pain points we keep seeing across teams:
+- **“I asked for JSON, got a paragraph.”** Missing keys, format drift, extra prose → broken parsers.
+- **Tools that work… until they don’t.** Failures become hard to reproduce, debug, and audit.
+- **Low-code graphs that outgrow themselves.** More branches, more state, less confidence to change.
+- **RAG without accountability.** You can’t answer: “Which doc supports this claim?”
+
+Agently turns them into engineering primitives you can ship with confidence: schema-first outputs (`output()` + `ensure_keys`), Instant-mode structured streaming, framework-native tool planning with traces, TriggerFlow orchestration, and KB grounding with citations.
+
 ### Structured and Streamed Output Control for LLMs
+
+Schema-first outputs are often the difference between a demo and an API: you define what the system must return, and the framework enforces it at runtime.
 
 Agently allows you to control and consume model outputs using a developer-centric pattern:
 
@@ -113,21 +138,14 @@ Then, consume the model response:
 ```python
 response = agent.get_response()
 
-# Get raw output
+# Get raw text
 response_text = response.get_text()
 
-# Get parsed structured result
-response_dict = response.get_result()
+# Get parsed structured data
+response_data = response.get_data()
 
-# Streamed output
-for delta in response.get_generator(content="delta"):
-    print(delta, end="", flush=True)
-```
-
-Or use the instant parsing mode:
-
-```python
-instant_response_generator = response.get_generator(content="instant")
+# Instant parsing mode (structured streaming)
+instant_response_generator = response.get_generator(type="instant")
 
 use_tool = False
 
@@ -155,7 +173,227 @@ I can check the current time for you. Please specify a timezone (e.g., 'America/
 [NO NEED TO USE TOOL!]
 ```
 
-## [More documentation coming soon...]
+### Provider Compatibility (Local / Hosted / Proxy)
+
+Agently unifies model configuration via `OpenAICompatible`, so you can switch between providers while keeping the same developer experience. It also supports common “production reality” knobs like `full_url` and custom auth headers.
+
+- Minimal example:
+```python
+from agently import Agently
+
+Agently.set_settings(
+    "OpenAICompatible",
+    {
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "auth": "DEEPSEEK_API_KEY",
+    },
+)
+```
+
+- Example configs: `examples/model_configures/`
+- Step-by-step: `examples/step_by_step/01-settings.py`
+
+### Output Reliability (ensure_keys + retries)
+
+In batch tasks and pipelines, a missing field can crash the whole job. Agently provides `ensure_keys` + retries for structured output so you can enforce required fields (including wildcard paths for list items).
+
+- Minimal example:
+```python
+from agently import Agently
+
+agent = Agently.create_agent()
+result = (
+    agent.input("Give me 3 todos")
+    .output({"todos": [("str", "todo item")]})
+    .start(ensure_keys=["todos[*]"], max_retries=2, raise_ensure_failure=False)
+)
+print(result)
+```
+```text
+Output (qwen2.5:7b):
+{'todos': ['Schedule morning exercise routine', 'Prepare presentation slides for the meeting', 'Respond to emails from clients']}
+```
+
+- Step-by-step: `examples/step_by_step/03-output_format_control.py`
+
+### Streaming UX (delta / instant / typed_delta)
+
+Agently streaming is designed for real applications: reduce waiting, expose decisions early, and route structured fields to different UI regions. For example in a “companion robot” HCI scenario, you often want to mix user-facing text with machine/behavior commands, and consume them as soon as they are parsed.
+
+- Minimal example:
+```python
+from agently import Agently
+
+agent = Agently.create_agent()
+response = (
+    agent.input("Act as a companion robot: greet me and propose a small action you can do next.")
+    .output(
+        {
+            "thinking": ("str", "internal planning (not for users)"),
+            "say": ("str", "what the user sees/hears"),
+            "actions": [("str", "robot action command(s) for your app to execute")],
+        }
+    )
+    .get_response()
+)
+
+say_label_printed = False
+
+def execute_action(action: str) -> None:
+    # In real apps, route this to your robot controller / UI event bus.
+    print(f"\n[action] {action}")
+
+for msg in response.get_generator(type="instant"):
+    if msg.path == "say" and msg.delta:
+        if not say_label_printed:
+            print("[say] ", end="")
+            say_label_printed = True
+        print(msg.delta, end="", flush=True)
+    if msg.path.startswith("actions[") and msg.is_complete:
+        execute_action(msg.value)
+print()
+```
+```text
+Output (qwen2.5:7b):
+[say] Hello! Nice to meet you. How about we start with some light conversation? Do you have any favorite hobbies or interests that we could talk about?
+[action] initiate_conversation
+```
+
+- Step-by-step: `examples/step_by_step/06-streaming.py`
+- Reference patterns: `examples/basic/streaming_print.py`
+
+### Tools (built-in + custom + traceable)
+
+When a project grows from 1 tool to 20 tools, “it worked yesterday” isn’t enough—you need predictable planning and a trail you can audit.
+
+Tools let the model call external functions deterministically. Agently supports:
+- built-in `Search` / `Browse`
+- custom tools via decorator
+- tool call tracing from response metadata (`extra`)
+
+Unlike workflows that rely on provider-side function calling, Agently can run a framework-native “tool planning” step even on plain chat endpoints, so tool orchestration stays portable across most modern models.
+
+- Minimal example:
+```python
+from agently import Agently
+
+agent = Agently.create_agent()
+
+@agent.tool_func
+def add(*, a: int, b: int) -> int:
+    return a + b
+
+agent.use_tools(add)
+print(agent.input("Use the add tool to calculate 12 + 34.").start())
+```
+```text
+Output (qwen2.5:7b):
+The sum of 12 and 34 is calculated as follows:
+
+12
++34
+-----
+46
+
+Therefore, the result of 12 + 34 is **46**. 
+
+No external sources were used in this calculation.
+```
+
+- Step-by-step: `examples/step_by_step/07-tools.py`
+
+### Workflow Orchestration (TriggerFlow)
+
+TriggerFlow is for the moment your workflow stops being a sketch: you need events, joins, loops, concurrency limits, and long-term maintainability (including migrating from n8n/Dify/Coze-style graphs into code).
+
+TriggerFlow is Agently’s event-driven workflow engine, designed for:
+- branching (`when`, `if_condition`, `match`)
+- concurrency limits (`batch`, `for_each`)
+- loops (`emit` + `when`)
+- runtime stream events (`put_into_stream`)
+
+- Minimal example:
+```python
+from agently import TriggerFlow
+
+flow = TriggerFlow()
+flow.to(lambda d: f"Hello, {d.value}").end()
+print(flow.start("Agently"))
+```
+```text
+Output (qwen2.5:7b):
+Hello, Agently
+```
+
+- TriggerFlow series: `examples/step_by_step/11-triggerflow-01_basics.py`
+
+### Knowledge Base (embeddings + vector DB)
+
+In enterprise RAG, the question is rarely “can we retrieve?”—it’s “can we cite and defend the answer?”.
+
+Agently integrates KB pipelines (e.g., Chroma) to ground responses with real documents and metadata.
+
+- Minimal example:
+```python
+from agently import Agently
+from agently.integrations.chromadb import ChromaCollection
+
+embedding = Agently.create_agent()
+embedding.set_settings(
+    "OpenAICompatible",
+    {
+        "model": "qwen3-embedding:0.6b",
+        "base_url": "http://127.0.0.1:11434/v1/",
+        "auth": "nothing",
+        "model_type": "embeddings",
+    },
+)
+kb = ChromaCollection(collection_name="demo", embedding_agent=embedding)
+kb.add([{"document": "Agently is a GenAI framework.", "metadata": {"source": "demo"}}])
+print(kb.query("What is Agently?"))
+```
+
+- Step-by-step: `examples/step_by_step/09-knowledge_base.py`
+
+### Deployment Templates (FastAPI, Docker)
+
+For engineering delivery, the repo includes a docker-ready FastAPI project that exposes Auto Loop through:
+- SSE streaming
+- WebSocket
+- POST
+
+- Minimal example:
+```shell
+cd examples/step_by_step/13-auto_loop_fastapi
+uvicorn app.main:app --reload
+```
+
+- Project: `examples/step_by_step/13-auto_loop_fastapi/`
+
+### Learn by Examples (Recommended Path)
+
+Start with these step-by-step chapters (runnable code + explanations in docs):
+- Settings → `examples/step_by_step/01-settings.py`
+- Prompt Methods → `examples/step_by_step/02-prompt_methods.py`
+- Output Control → `examples/step_by_step/03-output_format_control.py`
+- Streaming → `examples/step_by_step/06-streaming.py`
+- Tools → `examples/step_by_step/07-tools.py`
+- TriggerFlow → `examples/step_by_step/11-triggerflow-01_basics.py`
+- Auto Loop → `examples/step_by_step/12-auto_loop.py`
+
+## Agently Helper (Desktop)
+
+Agently Helper is a desktop tool to help you quickly **understand** and **test** Agently capabilities without setting up a full project first:
+- Multi-model management and switching
+- Switching between different prompt styles
+- Structured output
+- Streaming output
+
+- Windows: https://1drv.ms/u/c/13d5207d1b13e4d3/IQC9XITZl83hR5vU9Z_t-0oKAd3jtMh_fYRypp7T2k8JhCY?e=I72GVH
+- macOS (Apple Silicon): https://1drv.ms/u/c/13d5207d1b13e4d3/IQBhdxYw9Ev1R6qTWb-esVK2AY8PwCxnBHLNuf06Ic4w7sw?e=unMjaD
+- macOS (Intel): https://1drv.ms/u/c/13d5207d1b13e4d3/IQDqUPSqRq7LR7gpCjK60FOSASl4PBsRZPGtHvBAA63U_js?e=EmwVMA
+- Linux: https://1drv.ms/u/c/13d5207d1b13e4d3/IQDVenHvItjFTqnlv294MPD9AUQDvkAKwvBcNufEXSl1nAs?e=Ti5aJ7
 
 ## 💬 WeChat Group (Join Us)
 
