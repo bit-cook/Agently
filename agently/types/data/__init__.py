@@ -36,6 +36,7 @@ EMPTY = AVOID_COPY()
 from .serializable import SerializableData, SerializableValue
 from .prompt import (
     ChatMessage,
+    ChatMessageDict,
     ChatMessageContent,
     TextMessageContent,
     PromptModel,
@@ -71,4 +72,5 @@ from .tool import (
     ReturnType,
     MCPConfig,
     MCPConfigs,
+    ToolInfo,
 )

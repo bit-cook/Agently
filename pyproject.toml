@@ -1,6 +1,6 @@
 [project]
 name = "agently"
-version = "4.0.6.11"
+version = "4.0.7.1"
 description = ""
 authors = [
     {name = "Agently Team",email = "developer@agently.tech"},
@@ -29,6 +29,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
 pytest-asyncio = "^1.0.0"
+anyio = ">=4,<5"
 
 [tool.black]
 line-length = 120
