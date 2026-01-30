@@ -61,10 +61,6 @@ class ModelResponseResult:
         self.async_get_meta = self._response_parser.async_get_meta
         self.get_text = self._response_parser.get_text
         self.async_get_text = self._response_parser.async_get_text
-        # self.get_data = self._response_parser.get_data
-        # self.async_get_data = self._response_parser.async_get_data
-        # self.get_data_object = self._response_parser.get_data_object
-        # self.async_get_data_object = self._response_parser.async_get_data_object
         self.get_data = FunctionShifter.syncify(self.async_get_data)
         self.get_data_object = FunctionShifter.syncify(self.async_get_data_object)
         self.get_generator = self._response_parser.get_generator
@@ -152,6 +148,11 @@ class ModelResponseResult:
                     else:
                         return await self._response_parser.async_get_data(type=type)
         return await self._response_parser.async_get_data(type=type)
+
+    @overload
+    async def async_get_data_object(
+        self,
+    ) -> "BaseModel | None": ...
 
     @overload
     async def async_get_data_object(
@@ -432,6 +433,9 @@ class ModelRequest:
         self.get_data = FunctionShifter.syncify(self.async_get_data)
         self.get_data_object = FunctionShifter.syncify(self.async_get_data_object)
 
+        self.start = self.get_data
+        self.async_start = self.async_get_data
+
     def set_prompt(
         self,
         key: "PromptStandardSlot | str",
@@ -464,7 +468,7 @@ class ModelRequest:
         prompt: Any,
         mappings: dict[str, Any] | None = None,
     ):
-        self.prompt.set("system", ["YOU MUST REACT AND RESPOND AS {system.role}!"])
+        self.prompt.set("system", ["YOU MUST REACT AND RESPOND AS {system.your_role}!"])
         self.prompt.set("system.your_role", prompt, mappings)
         return self
 

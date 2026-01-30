@@ -14,7 +14,7 @@
 
 
 import uuid
-from asyncio import Event
+from asyncio import Event, Semaphore
 from threading import Lock
 
 from typing import Callable, Any, Literal, TYPE_CHECKING, overload, cast
@@ -266,11 +266,13 @@ class TriggerFlowBaseProcess:
         self,
         *chunks: "TriggerFlowChunk | TriggerFlowHandler | tuple[str, TriggerFlowHandler]",
         side_branch: bool = False,
+        concurrency: int | None = None,
     ):
         batch_trigger = f"Batch-{ uuid.uuid4().hex }"
         results = {}
         triggers_to_wait = {}
         trigger_to_chunk_name = {}
+        semaphore = Semaphore(concurrency) if concurrency and concurrency > 0 else None
 
         async def wait_all_chunks(data: "TriggerFlowEventData"):
             if data.event in triggers_to_wait:
@@ -292,13 +294,25 @@ class TriggerFlowBaseProcess:
                 chunk = self._flow_chunk(chunk_name)(chunk_func)
             else:
                 chunk = self._flow_chunk(chunk.__name__)(chunk) if callable(chunk) else chunk
+            typed_chunk = cast(TriggerFlowChunk, chunk)
             triggers_to_wait[chunk.trigger] = False
             trigger_to_chunk_name[chunk.trigger] = chunk.name
             results[chunk.name] = None
+
+            if semaphore is None:
+                handler = typed_chunk.async_call
+            else:
+                def make_handler(bound_chunk: TriggerFlowChunk):
+                    async def handler(data: "TriggerFlowEventData"):
+                        async with semaphore:
+                            return await bound_chunk.async_call(data)
+                    return handler
+                handler = make_handler(typed_chunk)
+
             self._blue_print.add_handler(
                 self.trigger_type,
                 self.trigger_event,
-                chunk.async_call,
+                handler,
             )
             self._blue_print.add_event_handler(chunk.trigger, wait_all_chunks)
 
