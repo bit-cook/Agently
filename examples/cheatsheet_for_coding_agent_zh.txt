@@ -8,7 +8,7 @@
 核心能力:
   settings: Agently.set_settings + agent.set_settings
   prompt: input + instruct + info + output
-  output_control: 结构化输出 + ensure_keys + 自动重试
+  output_control: 结构化输出 + ensure 标记 + 自动重试
   response: get_text/get_data + get_generator(type=instant/typed_delta/specific)
   actions: 内置 Search/Browse + 自定义 action_func
   knowledge_base: ChromaCollection + embeddings agent + query -> info
@@ -60,11 +60,11 @@ result = (
     agent.input("总结这个项目")
     .output(
         {
-            "summary": ("str", "简短总结"),
-            "risks": [("str", "风险项")],
+            "summary": ("str", "简短总结", True),
+            "risks": [("str", "风险项", True)],
         }
     )
-    .start(ensure_keys=["summary", "risks[*]"], max_retries=2)
+    .start(max_retries=2)
 )
 ```
 
@@ -181,7 +181,7 @@ state = await close_task
 4. 支持 `reset` 和 `exit`
 
 ## 稳定性检查清单
-- 明确输出结构，并用 `ensure_keys` 锁关键字段
+- 明确输出结构，固定关键字段优先用元组 `ensure`
 - knowledge base 初始化放到循环外部
 - 流式输出只在首个 token 打标签
 - 多轮记忆优先放在 execution state

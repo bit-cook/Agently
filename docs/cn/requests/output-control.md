@@ -10,6 +10,8 @@ keywords: Agently, output, validate, ensure_keys, retry, max_retries
 
 第一次消费结构化 response 结果时，校验流水线会运行并缓存结果。它的执行顺序固定，每一步都共用同一份 retry 预算。
 
+对 Agently `4.1.0.1+`，默认 authoring 路径是：在 `.output(...)` 里直接用第三槽 `ensure` 标记固定必填叶子，再由运行时把这些标记编译成 `ensure_keys`。只有当必填路径是运行时决定、条件分支决定，或用静态 schema 不好表达时，才手动传 `ensure_keys=`。
+
 ## 流水线
 
 ```text
@@ -132,7 +134,7 @@ phase 1 **没有** `model.validation_passed` 事件 —— 通过是默认且静
 - `ensure_keys` 处理**路径存在性**（由 `.output(...)` 中的 `ensure` 编译而来）。
 - `.validate(...)` 处理基于实际内容的**值规则**。
 
-「这字段必须出现」用 `ensure_keys`。「这字段必须满足某业务规则」用 `.validate(...)`。
+固定必填叶子优先写 `(TypeExpr, "description", True)`，不要把同一批路径再手动重复到 `ensure_keys=`。条件型或运行时决定的路径，再用手动 `ensure_keys`。而「这字段必须满足某业务规则」用 `.validate(...)`。
 
 ## 常见模式
 

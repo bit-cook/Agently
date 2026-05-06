@@ -10,6 +10,8 @@ keywords: Agently, output, validate, ensure_keys, retry, max_retries
 
 The validation pipeline runs the first time a structured response result is consumed, then caches the outcome on that response result. It has a fixed order, and each step contributes to the same retry budget.
 
+For Agently `4.1.0.1+`, the default authoring path is: mark fixed required leaves directly in `.output(...)` with the third-slot `ensure` flag, then let the runtime compile those flags into `ensure_keys`. Pass `ensure_keys=` manually only when the required path is runtime-dependent, conditional, or easier to express outside the static schema.
+
 ## The pipeline
 
 ```text
@@ -132,7 +134,7 @@ Agently-DevTools consumes these defensively. New event keys are additive and sho
 - `ensure_keys` handles **path presence** (compiled from the `ensure` flag in `.output(...)`).
 - `.validate(...)` handles **value rules** that depend on the actual content.
 
-Use `ensure_keys` for "this field must exist". Use `.validate(...)` for "this field must satisfy this business rule".
+For fixed required leaves, prefer `(TypeExpr, "description", True)` in `.output(...)` rather than manually repeating the same paths in `ensure_keys=`. Use manual `ensure_keys` for conditional or runtime-only paths. Use `.validate(...)` for "this field must satisfy this business rule".
 
 ## Common patterns
 
