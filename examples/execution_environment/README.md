@@ -12,10 +12,11 @@ Example groups:
 - `02_agent_python_environment_ollama.py`
   - Uses an Ollama OpenAI-compatible endpoint.
   - Defaults to `qwen2.5:7b`, which is sufficient for the small action-selection task.
-  - Lets the model choose a managed Python-backed action, then prints action records and the final reply.
+  - Uses `agent.enable_python(...)` so app code does not hand-write executor or environment declarations.
+  - Lets the model choose the managed Python action, then prints action records and the final reply.
 - `03_agent_issue_processor_deepseek.py`
   - Uses DeepSeek for a more complex issue-processing prompt.
-  - Lets the model use a managed Python-backed action to calculate deterministic issue metrics before replying.
+  - Uses `agent.enable_python(...)` for deterministic issue metrics before replying.
 - `04_triggerflow_python_environment_local.py`
   - Runs without any model API key.
   - Injects a managed Python sandbox into TriggerFlow `runtime_resources`.
@@ -51,6 +52,7 @@ python examples/execution_environment/04_triggerflow_python_environment_local.py
 Notes:
 
 - Execution Environment declarations are lazy; a declaration does not start a sandbox or transport.
+- Business examples should prefer `agent.enable_python(...)`, `agent.enable_shell(...)`, and `agent.enable_workspace(...)` over direct manager/provider APIs.
 - Action dispatch ensures required environments immediately before executor calls.
 - `action_call` scoped handles are released after the action call.
 - TriggerFlow still exposes live resources through `runtime_resources`; managed resources are injected by Execution Environment and released when the execution closes.

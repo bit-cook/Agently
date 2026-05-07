@@ -32,6 +32,7 @@ Each layer assumes the previous ones work. Skipping ahead is the most common rea
 | Need to reuse one response multiple ways | [Model Response](../requests/model-response.md) |
 | Multi-turn chat with bounded history | [Session Memory](../requests/session-memory.md) |
 | Need the model to call tools / MCP servers | [Action Runtime](../actions/action-runtime.md) |
+| Need common Python / shell / workspace ability | [Action Runtime](../actions/action-runtime.md), start with `agent.enable_python(...)`, `agent.enable_shell(...)`, or `agent.enable_workspace(...)` |
 | Need managed MCP/sandbox lifecycle before execution | [Execution Environment](../actions/execution-environment.md), usually for action/plugin authors |
 | Deciding where a new extension belongs | [Extension Boundaries](../architecture/extension-boundaries.md) |
 | Building a service over agents | [FastAPI Service Exposure](../services/fastapi.md) |
@@ -45,7 +46,7 @@ Each layer assumes the previous ones work. Skipping ahead is the most common rea
 
 - "Do I need TriggerFlow?" — Only when there are explicit stages, branching, concurrency, or wait/resume. A single request with retries does not need TriggerFlow.
 - "Sync or async?" — Sync for scripts and demos. Async for services, streaming UI, and TriggerFlow. See [Async First](../start/async-first.md).
-- "Action or tool API?" — New code: `Agently.action` / `agent.use_actions(...)`. Existing `tool_func` / `use_tools` / `use_mcp` / `use_sandbox` keep working but are positioned as a compatibility surface; see [Action Runtime](../actions/action-runtime.md).
+- "Action or tool API?" — New code: `Agently.action` / `agent.use_actions(...)`, plus scenario helpers such as `agent.enable_python(...)`, `agent.enable_shell(...)`, and `agent.enable_workspace(...)`. Existing `tool_func` / `use_tools` / `use_mcp` / `use_sandbox` keep working but are positioned as a compatibility surface; see [Action Runtime](../actions/action-runtime.md).
 - "Executor or Execution Environment?" — Executors run one call. Execution Environment prepares reusable or policy-bound dependencies before that call; see [Execution Environment](../actions/execution-environment.md).
 - "Core API or syntax sugar?" — App developers should start with built-in actions and Agent Component helpers. Core managers and providers are for framework, action, and plugin developers; see [Extension Boundaries](../architecture/extension-boundaries.md).
 - "Runtime event or TriggerFlow event?" — Runtime events belong to [Event Center](../observability/event-center.md). `emit` / `when` and runtime stream belong to [TriggerFlow Events and Streams](../triggerflow/events-and-streams.md).

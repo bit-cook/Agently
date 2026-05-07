@@ -72,8 +72,8 @@ The first built-in providers are:
 | Kind | Used by | Managed resource |
 |---|---|---|
 | `mcp` | `agent.use_mcp(...)` / MCP actions | MCP transport resource |
-| `bash` | `agent.use_sandbox("bash")` / Bash sandbox actions | configured command runner |
-| `python` | `agent.use_sandbox("python")` / Python sandbox actions | configured Python sandbox |
+| `bash` | `agent.enable_shell(...)` / Bash sandbox actions | configured command runner |
+| `python` | `agent.enable_python(...)` / Python sandbox actions | configured Python sandbox |
 
 These providers are low-level environment implementations. User-facing
 capabilities should normally be exposed as Actions, and scenario shortcuts

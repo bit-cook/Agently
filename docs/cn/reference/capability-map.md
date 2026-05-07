@@ -34,6 +34,7 @@ keywords: Agently, 能力地图, 学习路径, request, TriggerFlow
 | 一次响应想多种方式复用 | [模型响应](../requests/model-response.md) |
 | 多轮对话且要控制窗口 | [会话记忆](../requests/session-memory.md) |
 | 模型要调工具 / MCP | [Action Runtime](../actions/action-runtime.md) |
+| 需要常见 Python / shell / workspace 能力 | [Action Runtime](../actions/action-runtime.md)，优先从 `agent.enable_python(...)`、`agent.enable_shell(...)` 或 `agent.enable_workspace(...)` 开始 |
 | 执行前需要托管 MCP/sandbox 生命周期 | [Execution Environment](../actions/execution-environment.md)，通常面向 action/plugin 开发者 |
 | 判断新扩展应该放在哪一层 | [扩展边界](../architecture/extension-boundaries.md) |
 | 把 agent 包成服务 | [FastAPI 服务封装](../services/fastapi.md) |
@@ -47,7 +48,7 @@ keywords: Agently, 能力地图, 学习路径, request, TriggerFlow
 
 - 「我需要 TriggerFlow 吗？」——只在有明确的阶段、分支、并发或暂停恢复时才需要。带重试的单次请求不需要 TriggerFlow。
 - 「Sync 还是 async？」——脚本和 demo 用 sync。服务、流式 UI 与 TriggerFlow 用 async。见 [Async First](../start/async-first.md)。
-- 「Action 还是 tool API？」——新代码：`Agently.action` / `agent.use_actions(...)`。已有的 `tool_func` / `use_tools` / `use_mcp` / `use_sandbox` 仍可用，但定位为兼容入口；见 [Action Runtime](../actions/action-runtime.md)。
+- 「Action 还是 tool API？」——新代码：`Agently.action` / `agent.use_actions(...)`，以及 `agent.enable_python(...)`、`agent.enable_shell(...)`、`agent.enable_workspace(...)` 等场景 helper。已有的 `tool_func` / `use_tools` / `use_mcp` / `use_sandbox` 仍可用，但定位为兼容入口；见 [Action Runtime](../actions/action-runtime.md)。
 - 「Executor 还是 Execution Environment？」——Executor 负责一次调用；Execution Environment 在调用前准备可复用或受 policy 约束的依赖；见 [Execution Environment](../actions/execution-environment.md)。
 - 「Core API 还是语法糖？」——应用开发者应优先使用 built-in actions 和 Agent Component helpers。Core manager 与 provider 面向框架、action、plugin 开发者；见 [扩展边界](../architecture/extension-boundaries.md)。
 - 「Runtime event 还是 TriggerFlow event？」——runtime event 归 [Event Center](../observability/event-center.md)；`emit` / `when` 与 runtime stream 归 [TriggerFlow 事件与流](../triggerflow/events-and-streams.md)。

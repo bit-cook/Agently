@@ -48,7 +48,11 @@ class PythonSandboxActionExecutor:
         action_input = action_call.get("action_input", {})
         python_code = ""
         if isinstance(action_input, dict):
-            python_code = str(action_input.get("python_code", ""))
+            raw_code = action_input.get("python_code", "")
+            if isinstance(raw_code, list):
+                python_code = "\n".join(str(line) for line in raw_code)
+            else:
+                python_code = str(raw_code)
         action_id = str(spec.get("action_id", "python_sandbox"))
         environment_resources = action_call.get("execution_environment_resources", {})
         if isinstance(environment_resources, dict):

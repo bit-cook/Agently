@@ -102,9 +102,16 @@ print(calculate("3333+6666=?"))
 | `@agent.action_func` | 标记函数为 action，从签名 + docstring 推 schema |
 | `agent.use_actions(actions)` | 在 agent 上注册 list、单个 action 或字符串名 action |
 | `agent.use_actions(["name1", "name2"])` | 按名注册预注册的 action |
+| `agent.enable_python(...)` | 挂载托管 `run_python` action，用于确定性代码执行 |
+| `agent.enable_shell(...)` | 挂载带 workspace 与命令 allowlist 的托管 `run_bash` action |
+| `agent.enable_workspace(...)` | 挂载 workspace 文件列表、搜索、读取、写入 actions |
 | `@agent.auto_func` | 把 Python 函数签名 + docstring 变成模型驱动的实现，使用 agent 的 action |
 | `agent.get_action_result()` | 请求后取 action 调用记录 |
 | `extra.action_logs` | action loop 期间产生的结构化日志 |
+
+应用代码要给模型开放 Python、shell、workspace 等常见能力时，优先使用
+`enable_*` helpers。只有在开发自定义 Action 后端时，才需要使用
+`register_action(..., executor=..., execution_environments=[...])`。
 
 ## 兼容入口 —— tools
 

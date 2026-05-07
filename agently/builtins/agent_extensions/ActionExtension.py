@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import warnings
+from pathlib import Path
 from typing import Any, Callable, TYPE_CHECKING, ParamSpec, TypeVar
 
 from agently.core import BaseAgent
@@ -40,6 +41,9 @@ class ActionExtension(BaseAgent):
         self.use_tool = self.use_tools
         self.use_mcp = FunctionShifter.syncify(self.async_use_mcp)
         self.use_sandbox = self.use_action_sandbox
+        self.use_python = self.enable_python
+        self.use_shell = self.enable_shell
+        self.use_workspace = self.enable_workspace
 
         self.settings.setdefault("action.loop.max_rounds", 5, inherit=True)
         self.settings.setdefault("action.loop.concurrency", None, inherit=True)
@@ -192,6 +196,255 @@ class ActionExtension(BaseAgent):
             )
             return self
         raise ValueError("sandbox must be one of: 'python', 'bash'.")
+
+    def enable_python(
+        self,
+        *,
+        action_id: str = "run_python",
+        desc: str | None = None,
+        expose_to_model: bool = True,
+        preset_objects: dict[str, object] | None = None,
+        base_vars: dict[str, Any] | None = None,
+        allowed_return_types: list[type] | None = None,
+    ):
+        return self.use_action_sandbox(
+            "python",
+            action_id=action_id,
+            desc=desc
+            or (
+                "Run Python code in a managed safe sandbox for deterministic calculation "
+                "or small data shaping. Assign the final value to `result`."
+            ),
+            expose_to_model=expose_to_model,
+            preset_objects=preset_objects,
+            base_vars=base_vars,
+            allowed_return_types=allowed_return_types,
+        )
+
+    def enable_shell(
+        self,
+        *,
+        root: str | Path | None = None,
+        commands: list[str] | None = None,
+        action_id: str = "run_bash",
+        desc: str | None = None,
+        expose_to_model: bool = True,
+        timeout: int = 20,
+        env: dict[str, str] | None = None,
+    ):
+        roots = [str(Path(root).expanduser().resolve())] if root is not None else None
+        return self.use_action_sandbox(
+            "bash",
+            action_id=action_id,
+            desc=desc or "Run an allowlisted shell command inside a managed workspace boundary.",
+            expose_to_model=expose_to_model,
+            allowed_cmd_prefixes=commands,
+            allowed_workdir_roots=roots,
+            timeout=timeout,
+            env=env,
+        )
+
+    def enable_workspace(
+        self,
+        *,
+        root: str | Path = ".",
+        read: bool = True,
+        write: bool = False,
+        search: bool = True,
+        list_files: bool = True,
+        action_prefix: str = "",
+        expose_to_model: bool = True,
+        max_file_bytes: int = 20000,
+        max_search_file_bytes: int = 200000,
+    ):
+        root_path = Path(root).expanduser().resolve()
+        agent_tag = f"agent-{ self.name }"
+        prefix = action_prefix.strip()
+
+        def action_name(name: str):
+            return f"{ prefix }{ name }" if prefix else name
+
+        def resolve_workspace_path(path: str | Path = "."):
+            candidate = Path(path)
+            if not candidate.is_absolute():
+                candidate = root_path / candidate
+            resolved = candidate.expanduser().resolve()
+            try:
+                resolved.relative_to(root_path)
+            except ValueError as error:
+                raise ValueError(f"Path is outside workspace root: { path }") from error
+            return resolved
+
+        def is_hidden(path: Path):
+            try:
+                relative_parts = path.relative_to(root_path).parts
+            except ValueError:
+                return True
+            return any(part.startswith(".") for part in relative_parts)
+
+        def iter_workspace_files(
+            path: str = ".",
+            pattern: str = "*",
+            max_results: int = 200,
+            include_hidden: bool = False,
+        ):
+            base = resolve_workspace_path(path)
+            if base.is_file():
+                candidates = [base]
+            elif base.exists():
+                candidates = base.rglob(pattern)
+            else:
+                candidates = []
+            collected: list[Path] = []
+            for candidate in candidates:
+                if len(collected) >= max_results:
+                    break
+                if not candidate.is_file():
+                    continue
+                if not include_hidden and is_hidden(candidate):
+                    continue
+                collected.append(candidate)
+            return collected
+
+        if read and list_files:
+
+            def list_workspace_files(
+                path: str = ".",
+                pattern: str = "*",
+                max_results: int = 200,
+                include_hidden: bool = False,
+            ):
+                files = iter_workspace_files(path, pattern, max_results, include_hidden)
+                return [str(file.relative_to(root_path)) for file in files]
+
+            self.action.register_action(
+                action_id=action_name("list_files"),
+                desc=f"List files under the workspace root { root_path }.",
+                kwargs={
+                    "path": (str, "Workspace-relative directory or file path. Default: '.'."),
+                    "pattern": (str, "Glob pattern. Default: '*'."),
+                    "max_results": (int, "Maximum files to return. Default: 200."),
+                    "include_hidden": (bool, "Whether to include hidden paths. Default: False."),
+                },
+                func=list_workspace_files,
+                tags=[agent_tag],
+                side_effect_level="read",
+                expose_to_model=expose_to_model,
+                meta={"component": "workspace", "root": str(root_path)},
+            )
+
+        if read:
+
+            def read_file(path: str, max_bytes: int = max_file_bytes):
+                target = resolve_workspace_path(path)
+                if not target.is_file():
+                    raise FileNotFoundError(f"Workspace file not found: { path }")
+                content_bytes = target.read_bytes()
+                truncated = len(content_bytes) > max_bytes
+                content = content_bytes[:max_bytes].decode("utf-8", errors="replace")
+                return {
+                    "path": str(target.relative_to(root_path)),
+                    "content": content,
+                    "truncated": truncated,
+                    "bytes": len(content_bytes),
+                }
+
+            self.action.register_action(
+                action_id=action_name("read_file"),
+                desc=f"Read a UTF-8 text file under the workspace root { root_path }.",
+                kwargs={
+                    "path": (str, "Workspace-relative file path."),
+                    "max_bytes": (int, f"Maximum bytes to read. Default: { max_file_bytes }."),
+                },
+                func=read_file,
+                tags=[agent_tag],
+                side_effect_level="read",
+                expose_to_model=expose_to_model,
+                meta={"component": "workspace", "root": str(root_path)},
+            )
+
+        if read and search:
+
+            def search_files_action(
+                query: str,
+                path: str = ".",
+                pattern: str = "*",
+                max_results: int = 50,
+                include_hidden: bool = False,
+            ):
+                results: list[dict[str, Any]] = []
+                files = iter_workspace_files(path, pattern, max_results=1000, include_hidden=include_hidden)
+                for file in files:
+                    if len(results) >= max_results:
+                        break
+                    try:
+                        content_bytes = file.read_bytes()
+                    except OSError:
+                        continue
+                    if len(content_bytes) > max_search_file_bytes:
+                        continue
+                    text = content_bytes.decode("utf-8", errors="ignore")
+                    for line_no, line in enumerate(text.splitlines(), start=1):
+                        if query in line:
+                            results.append(
+                                {
+                                    "path": str(file.relative_to(root_path)),
+                                    "line": line_no,
+                                    "text": line,
+                                }
+                            )
+                            break
+                return results
+
+            self.action.register_action(
+                action_id=action_name("search_files"),
+                desc=f"Search UTF-8 text files under the workspace root { root_path }.",
+                kwargs={
+                    "query": (str, "Exact text to search for."),
+                    "path": (str, "Workspace-relative directory or file path. Default: '.'."),
+                    "pattern": (str, "Glob pattern. Default: '*'."),
+                    "max_results": (int, "Maximum matching files to return. Default: 50."),
+                    "include_hidden": (bool, "Whether to include hidden paths. Default: False."),
+                },
+                func=search_files_action,
+                tags=[agent_tag],
+                side_effect_level="read",
+                expose_to_model=expose_to_model,
+                meta={"component": "workspace", "root": str(root_path)},
+            )
+
+        if write:
+
+            def write_file(path: str, content: str, append: bool = False):
+                target = resolve_workspace_path(path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if append:
+                    with target.open("a", encoding="utf-8") as file:
+                        file.write(content)
+                else:
+                    target.write_text(content, encoding="utf-8")
+                return {
+                    "path": str(target.relative_to(root_path)),
+                    "bytes": len(content.encode("utf-8")),
+                    "mode": "append" if append else "write",
+                }
+
+            self.action.register_action(
+                action_id=action_name("write_file"),
+                desc=f"Write a UTF-8 text file under the workspace root { root_path }.",
+                kwargs={
+                    "path": (str, "Workspace-relative file path."),
+                    "content": (str, "Text content to write."),
+                    "append": (bool, "Append instead of overwrite. Default: False."),
+                },
+                func=write_file,
+                tags=[agent_tag],
+                side_effect_level="write",
+                expose_to_model=expose_to_model,
+                meta={"component": "workspace", "root": str(root_path), "write": True},
+            )
+
+        return self
 
     def set_action_loop(
         self,

@@ -102,9 +102,17 @@ print(calculate("3333+6666=?"))
 | `@agent.action_func` | mark a function as an action, derive its schema from signature + docstring |
 | `agent.use_actions(actions)` | register a list, single action, or string-named action with the agent |
 | `agent.use_actions(["name1", "name2"])` | register pre-registered actions by name |
+| `agent.enable_python(...)` | mount a managed `run_python` action for deterministic code execution |
+| `agent.enable_shell(...)` | mount a managed `run_bash` action with workspace and command allowlists |
+| `agent.enable_workspace(...)` | mount workspace file list/search/read/write actions |
 | `@agent.auto_func` | turn a Python function signature + docstring into a model-backed implementation that uses the agent's actions |
 | `agent.get_action_result()` | retrieve action call records after a request |
 | `extra.action_logs` | structured logs produced during the action loop |
+
+For application code, prefer `enable_*` helpers when the goal is to give the
+model a common capability such as Python, shell, or workspace access. Use
+`register_action(..., executor=..., execution_environments=[...])` when you are
+building a custom Action backend.
 
 ## Compatibility surface — tools
 

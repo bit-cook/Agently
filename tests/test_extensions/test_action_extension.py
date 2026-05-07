@@ -168,6 +168,62 @@ def test_action_extension_use_sandbox_registers_agent_scoped_bash_action(tmp_pat
     assert str(tmp_path) in str(result.get("data"))
 
 
+def test_action_extension_enable_python_registers_run_python_action():
+    agent = Agently.create_agent()
+    agent.enable_python(action_id="test_run_python")
+
+    action_list = agent.action.get_action_list(tags=[f"agent-{ agent.name }"])
+    assert any(action.get("action_id") == "test_run_python" for action in action_list)
+
+    result = agent.action.execute_action(
+        "test_run_python",
+        {"python_code": ["numbers = [1, 2, 3]", "result = sum(numbers)"]},
+    )
+    assert result.get("status") == "success"
+    assert result.get("data", {}).get("result") == 6
+    assert Agently.execution_environment.list(scope="action_call") == []
+
+
+def test_action_extension_enable_shell_registers_run_bash_action(tmp_path):
+    agent = Agently.create_agent()
+    agent.enable_shell(root=tmp_path, commands=["pwd"], action_id="test_run_bash")
+
+    result = agent.action.execute_action(
+        "test_run_bash",
+        {"cmd": "pwd", "workdir": str(tmp_path)},
+    )
+    assert result.get("status") == "success"
+    assert str(tmp_path) in str(result.get("data"))
+    assert Agently.execution_environment.list(scope="action_call") == []
+
+
+def test_action_extension_enable_workspace_registers_file_actions(tmp_path):
+    agent = Agently.create_agent()
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "todo.txt").write_text("fix runtime docs\nship examples\n", encoding="utf-8")
+
+    agent.enable_workspace(root=tmp_path, write=True)
+
+    listed = agent.action.execute_action("list_files", {"path": "notes"})
+    assert listed.get("status") == "success"
+    assert listed.get("data") == ["notes/todo.txt"]
+
+    searched = agent.action.execute_action("search_files", {"query": "runtime", "path": "notes"})
+    assert searched.get("status") == "success"
+    assert searched.get("data", [])[0]["line"] == 1
+
+    read = agent.action.execute_action("read_file", {"path": "notes/todo.txt"})
+    assert read.get("status") == "success"
+    assert "ship examples" in read.get("data", {}).get("content", "")
+
+    written = agent.action.execute_action("write_file", {"path": "notes/out.txt", "content": "ok"})
+    assert written.get("status") == "success"
+    assert (tmp_path / "notes" / "out.txt").read_text(encoding="utf-8") == "ok"
+
+    outside = agent.action.execute_action("read_file", {"path": "../outside.txt"})
+    assert outside.get("status") == "error"
+
+
 @pytest.mark.asyncio
 async def test_action_extension_request_prefix_injects_action_results(monkeypatch):
     agent = Agently.create_agent()

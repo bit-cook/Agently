@@ -68,8 +68,8 @@ action 会声明自己的 requirement，Action dispatcher 在 executor 调用前
 | Kind | 使用方 | 托管资源 |
 |---|---|---|
 | `mcp` | `agent.use_mcp(...)` / MCP actions | MCP transport resource |
-| `bash` | `agent.use_sandbox("bash")` / Bash sandbox actions | 配置后的命令 runner |
-| `python` | `agent.use_sandbox("python")` / Python sandbox actions | 配置后的 Python sandbox |
+| `bash` | `agent.enable_shell(...)` / Bash sandbox actions | 配置后的命令 runner |
+| `python` | `agent.enable_python(...)` / Python sandbox actions | 配置后的 Python sandbox |
 
 这些 provider 是低层环境实现。面向用户的能力通常应该暴露为 Action，场景快捷入口应该通过 Agent Component 或未来的 `agent.enable_*` helpers 暴露。
 
