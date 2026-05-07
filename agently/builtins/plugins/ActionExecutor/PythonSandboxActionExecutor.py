@@ -49,6 +49,12 @@ class PythonSandboxActionExecutor:
         python_code = ""
         if isinstance(action_input, dict):
             python_code = str(action_input.get("python_code", ""))
+        action_id = str(spec.get("action_id", "python_sandbox"))
+        environment_resources = action_call.get("execution_environment_resources", {})
+        if isinstance(environment_resources, dict):
+            sandbox = environment_resources.get(action_id)
+            if sandbox is not None and hasattr(sandbox, "run"):
+                return sandbox.run(python_code)
 
         sandbox_kwargs = {
             "preset_objects": self.preset_objects,

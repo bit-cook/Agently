@@ -37,6 +37,7 @@ if TYPE_CHECKING:
         TriggerFlowSubFlowCapture,
         TriggerFlowSubFlowWriteBack,
     )
+    from agently.types.data import ExecutionEnvironmentRequirement
     from .TriggerFlow import TriggerFlow
 
 from agently.types.data import EMPTY, SerializableMapping
@@ -1508,6 +1509,7 @@ class TriggerFlowBlueprint:
         auto_close_timeout: float | None = 10.0,
         owner_id: str | None = None,
         lease_ttl: float | None = None,
+        execution_environments: "list[ExecutionEnvironmentRequirement] | None" = None,
     ):
         handlers_snapshot: TriggerFlowAllHandlers = {
             "event": {k: v.copy() for k, v in self._handlers["event"].items()},
@@ -1525,6 +1527,7 @@ class TriggerFlowBlueprint:
             auto_close_timeout=auto_close_timeout,
             owner_id=owner_id,
             lease_ttl=lease_ttl,
+            execution_environments=execution_environments,
         )
 
     def copy(self, *, name: str | None = None):

@@ -15,6 +15,7 @@
 from .base import AgentlyPlugin, AgentlyPluginType
 from .ActionFlow import ActionFlow
 from .ActionExecutor import ActionExecutor
+from .ExecutionEnvironmentProvider import ExecutionEnvironmentProvider
 from .ActionRuntime import (
     ActionExecutionHandler,
     ActionPlanningHandler,

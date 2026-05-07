@@ -116,6 +116,18 @@ restored.load(saved)
 
 The caller is responsible for re-injecting compatible resources after `load()`.
 
+### Managed execution resources
+
+`runtime_resources` can also receive managed resources from
+`Agently.execution_environment` when you pass `execution_environments=[...]` to
+`flow.create_execution(...)`, `flow.start_execution(...)`, or
+`flow.async_start(...)`.
+
+Those resources are still read inside chunks through `data.require_resource(...)`.
+The difference is ownership: the Execution Environment Manager starts/reuses the
+resource and releases it when the execution closes. Manually passed
+`runtime_resources={...}` remain unmanaged.
+
 ## Decision table
 
 | You're storing | Use |
@@ -136,5 +148,6 @@ The caller is responsible for re-injecting compatible resources after `load()`.
 ## See also
 
 - [Lifecycle](lifecycle.md) — what `close()` returns
+- [Execution Environment](../actions/execution-environment.md) — managed live resource lifecycle
 - [Persistence and Blueprint](persistence-and-blueprint.md) — `save` / `load` semantics
 - [Compatibility](compatibility.md) — `runtime_data` is the deprecated alias of `state`

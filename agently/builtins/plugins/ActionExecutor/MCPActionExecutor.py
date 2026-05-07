@@ -43,8 +43,12 @@ class MCPActionExecutor:
         action_input = action_call.get("action_input", {})
         if not isinstance(action_input, dict):
             action_input = {}
+        environment_resources = action_call.get("execution_environment_resources", {})
+        transport = self.transport
+        if isinstance(environment_resources, dict) and self.action_id in environment_resources:
+            transport = environment_resources[self.action_id]
 
-        async with Client(self.transport) as client:  # type: ignore[arg-type]
+        async with Client(transport) as client:  # type: ignore[arg-type]
             mcp_result = await client.call_tool(
                 name=self.action_id,
                 arguments=action_input,

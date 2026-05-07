@@ -28,6 +28,7 @@ Agently 的 action 栈在编排层之下有三个可替换插件层：
 | `ActionRuntime` | 规划协议、action 调用归一化、默认执行编排 | `AgentlyActionRuntime` |
 | `ActionFlow` | `ActionRuntime` 与 flow 表示之间的桥 | `TriggerFlowActionFlow` |
 | `ActionExecutor` | 单个 action 实际怎么跑 | `LocalFunctionActionExecutor`、`MCPActionExecutor`、`PythonSandboxActionExecutor`、`BashSandboxActionExecutor` |
+| `ExecutionEnvironment` | executor 调用前需要准备的托管执行依赖 | MCP、Bash、Python providers |
 
 `agently.core.Action` 是门面，连线：
 
@@ -154,10 +155,12 @@ context 字段含 `prompt`、`settings`、`agent_name`、`round_index`、`max_ro
 | 规划协议或调用归一化 | `ActionRuntime` |
 | runtime 与 flow 之间的编排形态 | `ActionFlow` |
 | 多个 action 调用之上的更高层流控 | 用 `TriggerFlow` 在 runtime 之上 —— 不要把它塞进 executor |
+| MCP/sandbox/process 类依赖的生命周期 | 声明 `ExecutionEnvironment` requirement —— 不要把生命周期藏进 executor |
 
 ## 另见
 
 - [Actions 概览](overview.md) —— Action Runtime 到哪里停止、编排从哪里开始
+- [Execution Environment](execution-environment.md) —— 托管 MCP/sandbox 执行依赖
 - [工具](tools.md) —— 兼容入口详细
 - [MCP](mcp.md) —— `agent.use_mcp(...)`
 - [TriggerFlow 概览](../triggerflow/overview.md) —— action 之上的编排

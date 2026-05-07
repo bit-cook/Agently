@@ -28,6 +28,7 @@ Agently's action stack has three replaceable plugin layers below the orchestrati
 | `ActionRuntime` | planning protocol, action call normalization, default execution orchestration | `AgentlyActionRuntime` |
 | `ActionFlow` | bridge between an `ActionRuntime` and a flow representation | `TriggerFlowActionFlow` |
 | `ActionExecutor` | how one action actually runs | `LocalFunctionActionExecutor`, `MCPActionExecutor`, `PythonSandboxActionExecutor`, `BashSandboxActionExecutor` |
+| `ExecutionEnvironment` | managed execution dependencies required before an executor call | MCP, Bash, Python providers |
 
 `Action` in `agently.core` is a façade that wires:
 
@@ -154,10 +155,12 @@ There is no legacy positional handler signature — the public contract is `(con
 | The planning protocol or how calls are normalized | `ActionRuntime` |
 | The orchestration shape between runtime and flow | `ActionFlow` |
 | Higher-level flow control over many action calls | use `TriggerFlow` above the runtime — don't embed it inside an executor |
+| Lifecycle for MCP/sandbox/process-like dependencies | declare an `ExecutionEnvironment` requirement — don't hide lifecycle inside an executor |
 
 ## See also
 
 - [Actions Overview](overview.md) — where Action Runtime stops and orchestration starts
+- [Execution Environment](execution-environment.md) — managed MCP/sandbox dependencies
 - [Tools](tools.md) — the compat surface in more detail
 - [MCP](mcp.md) — `agent.use_mcp(...)`
 - [TriggerFlow Overview](../triggerflow/overview.md) — orchestration above actions

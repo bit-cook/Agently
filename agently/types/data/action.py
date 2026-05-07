@@ -18,6 +18,7 @@ from typing import Any, Awaitable, Callable, Literal
 from typing_extensions import TypedDict
 
 from .tool import KwargsType, ReturnType
+from .execution_environment import ExecutionEnvironmentRequirement
 
 ActionStatus = Literal["success", "error", "approval_required", "blocked", "skipped"]
 ActionSideEffectLevel = Literal["read", "write", "exec"]
@@ -87,6 +88,7 @@ class ActionSpec(TypedDict, total=False):
     replay_safe: bool
     expose_to_model: bool
     executor_type: str
+    execution_environments: list[ExecutionEnvironmentRequirement]
     meta: dict[str, Any]
 
 
@@ -100,6 +102,8 @@ class ActionCall(TypedDict, total=False):
     next: str
     tool_name: str
     tool_kwargs: dict[str, Any]
+    execution_environment_handles: dict[str, Any]
+    execution_environment_resources: dict[str, Any]
 
 
 class ActionDecision(TypedDict, total=False):

@@ -14,6 +14,12 @@
 
 from .PluginManager import PluginManager
 from .EventCenter import EventCenter, RuntimeEventEmitter
+from .ExecutionEnvironment import (
+    ExecutionEnvironmentApprovalDenied,
+    ExecutionEnvironmentApprovalRequired,
+    ExecutionEnvironmentError,
+    ExecutionEnvironmentManager,
+)
 from .Prompt import Prompt
 from .ExtensionHandlers import ExtensionHandlers
 from .ModelRequest import ModelRequest

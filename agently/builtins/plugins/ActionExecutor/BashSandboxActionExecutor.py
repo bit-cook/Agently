@@ -50,6 +50,16 @@ class BashSandboxActionExecutor:
         action_input = action_call.get("action_input", {})
         if not isinstance(action_input, dict):
             action_input = {}
+        action_id = str(spec.get("action_id", "bash_sandbox"))
+        environment_resources = action_call.get("execution_environment_resources", {})
+        if isinstance(environment_resources, dict):
+            cmd_resource = environment_resources.get(action_id)
+            if cmd_resource is not None and hasattr(cmd_resource, "run"):
+                return await cmd_resource.run(
+                    cmd=action_input.get("cmd", ""),
+                    workdir=action_input.get("workdir", None),
+                    allow_unsafe=bool(action_input.get("allow_unsafe", False)),
+                )
 
         cmd = Cmd(
             allowed_cmd_prefixes=policy.get("allowed_cmd_prefixes", self.allowed_cmd_prefixes),

@@ -30,6 +30,11 @@ def _load_default_plugins(plugin_manager: "PluginManager"):
         MCPActionExecutor,
         PythonSandboxActionExecutor,
     )
+    from agently.builtins.plugins.ExecutionEnvironmentProvider import (
+        BashExecutionEnvironmentProvider,
+        MCPExecutionEnvironmentProvider,
+        PythonExecutionEnvironmentProvider,
+    )
 
     plugin_manager.register("ActionRuntime", AgentlyActionRuntime)
     plugin_manager.register("ActionFlow", TriggerFlowActionFlow)
@@ -37,6 +42,9 @@ def _load_default_plugins(plugin_manager: "PluginManager"):
     plugin_manager.register("ActionExecutor", MCPActionExecutor, activate=False)
     plugin_manager.register("ActionExecutor", PythonSandboxActionExecutor, activate=False)
     plugin_manager.register("ActionExecutor", BashSandboxActionExecutor, activate=False)
+    plugin_manager.register("ExecutionEnvironmentProvider", MCPExecutionEnvironmentProvider, activate=False)
+    plugin_manager.register("ExecutionEnvironmentProvider", BashExecutionEnvironmentProvider, activate=False)
+    plugin_manager.register("ExecutionEnvironmentProvider", PythonExecutionEnvironmentProvider, activate=False)
 
     from agently.builtins.plugins.PromptGenerator.AgentlyPromptGenerator import (
         AgentlyPromptGenerator,
