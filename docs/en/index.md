@@ -40,7 +40,7 @@ This handbook is organized as a learning path. If you have not run a single requ
    - [Knowledge Base](knowledge/knowledge-base.md)
    - [FastAPI Service Exposure](services/fastapi.md)
 
-5. **Observability and development** — runtime events, DevTools, and coding-agent guidance
+5. **Observability and development** — observation events, DevTools, and coding-agent guidance
    - [Observability Overview](observability/overview.md)
    - [Event Center](observability/event-center.md)
    - [DevTools](observability/devtools.md)

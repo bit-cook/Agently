@@ -50,6 +50,8 @@ plugin_manager = PluginManager(
 _load_default_plugins(plugin_manager)
 event_center = EventCenter()
 _hook_default_event_handlers(event_center)
+async_emit_observation = event_center.async_emit
+emit_observation = event_center.emit
 async_emit_runtime = event_center.async_emit
 emit_runtime = event_center.emit
 logger = create_logger()
@@ -185,6 +187,8 @@ class AgentlyMain(Generic[A]):
         self.settings = settings
         self.plugin_manager = plugin_manager
         self.event_center = event_center
+        self.emit_observation = emit_observation
+        self.async_emit_observation = async_emit_observation
         self.emit_runtime = emit_runtime
         self.async_emit_runtime = async_emit_runtime
         self.logger = logger

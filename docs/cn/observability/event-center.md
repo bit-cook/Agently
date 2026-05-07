@@ -1,16 +1,23 @@
 ---
 title: Event Center
-description: Agently runtime event 的注册、过滤、结构与兼容约束。
-keywords: Agently, EventCenter, runtime event, observation, DevTools
+description: Agently observation event 的注册、过滤、结构与兼容约束。
+keywords: Agently, EventCenter, ObservationEvent, RuntimeEvent, observation, DevTools
 ---
 
 # Event Center
 
 > 语言：[English](../../en/observability/event-center.md) · **中文**
 
-Event Center 是 Agently 的框架级观测通道。它承载 **runtime event**（运行时事件）：模型请求、Session 应用、TriggerFlow 生命周期、Action 调用等都会通过这里把结构化事件交给 DevTools 或自定义日志 sink。
+Event Center 是 Agently 的框架级观测通道。它承载 **observation event**（观测事件）：模型请求、Session 应用、TriggerFlow 生命周期、Action 调用等都会通过这里把结构化事件交给 DevTools 或自定义日志 sink。
 
-它和 TriggerFlow 的 `emit` / `when` 不是一回事：`emit` / `when` 改变 flow 内部控制流；runtime event 只是观察发生了什么。
+它和 TriggerFlow 的 `emit` / `when` 不是一回事：`emit` / `when` 改变 flow 内部控制流；observation event 只是观察发生了什么。
+
+命名兼容：
+
+- `ObservationEvent` 是新代码推荐命名。
+- `RuntimeEvent` 是历史命名，在 Agently 4.1.x 线内继续作为兼容 alias。
+- Agently 4.2 是已标注废弃事件命名的目标替换线。
+- 现有 `emit_runtime` / `async_emit_runtime` 继续可用；新代码可以使用 `emit_observation` / `async_emit_observation`。
 
 ## 注册 hook
 
@@ -38,7 +45,7 @@ Agently.event_center.unregister_hook("docs.capture")
 
 `event_types` 可传字符串、字符串列表或 `None`。传 `None` 时 hook 接收所有事件。同步函数也能注册；Event Center 会统一转成 async 调用。
 
-## 发送 runtime event
+## 发送 observation event
 
 常见路径是创建 emitter：
 
@@ -65,9 +72,26 @@ await Agently.event_center.async_emit({
 })
 ```
 
+顶层便捷 API：
+
+```python
+await Agently.async_emit_observation({
+    "event_type": "runtime.info",
+    "source": "Docs",
+    "message": "preferred observation API",
+})
+
+# 4.1.x 兼容 alias：
+await Agently.async_emit_runtime({
+    "event_type": "runtime.info",
+    "source": "Docs",
+    "message": "legacy runtime API",
+})
+```
+
 ## Event 结构
 
-`RuntimeEvent` 的顶层字段来自 `agently.types.data.event.RuntimeEvent`：
+`ObservationEvent` 的顶层字段来自 `agently.types.data.event.ObservationEvent`。`RuntimeEvent` 结构相同，并在 4.1.x 线内保留为兼容 alias：
 
 | 字段 | 含义 |
 |---|---|
@@ -88,7 +112,7 @@ Event Center 会兼容 TriggerFlow 历史事件前缀。订阅 `workflow.executi
 
 ## 兼容约束
 
-Runtime event 是观测协议。Agently-DevTools 和自定义消费者应按 fail-open 处理：
+Observation event 是观测协议。Agently-DevTools 和自定义消费者应按 fail-open 处理：
 
 - 忽略未知顶层字段和未知 `payload` 字段。
 - 对未知 `event_type` 不报错。
@@ -98,6 +122,6 @@ Runtime event 是观测协议。Agently-DevTools 和自定义消费者应按 fai
 ## 另见
 
 - [TriggerFlow 事件与流](../triggerflow/events-and-streams.md) —— flow 内部控制流与 runtime stream
-- [DevTools](devtools.md) —— 现成的 runtime 观测与评估 bridge
+- [DevTools](devtools.md) —— 现成的观测与评估 bridge
 - [FastAPI 服务封装](../services/fastapi.md) —— 把 runtime stream 转给服务客户端
 - [Coding Agents](../development/coding-agents.md) —— 通过 Agently Skills 给 coding agent 提供指引

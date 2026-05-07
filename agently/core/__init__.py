@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from .PluginManager import PluginManager
-from .EventCenter import EventCenter, RuntimeEventEmitter
+from .EventCenter import EventCenter, ObservationEventEmitter, RuntimeEventEmitter
 from .Prompt import Prompt
 from .ExtensionHandlers import ExtensionHandlers
 from .ModelRequest import ModelRequest

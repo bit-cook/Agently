@@ -1,16 +1,23 @@
 ---
 title: Event Center
-description: Runtime event registration, filtering, shape, and compatibility rules in Agently.
-keywords: Agently, EventCenter, runtime event, observation, DevTools
+description: Observation event registration, filtering, shape, and compatibility rules in Agently.
+keywords: Agently, EventCenter, ObservationEvent, RuntimeEvent, observation, DevTools
 ---
 
 # Event Center
 
 > Languages: **English** · [中文](../../cn/observability/event-center.md)
 
-The Event Center is Agently's framework-level observation channel. It carries **runtime events**: model requests, Session application, TriggerFlow lifecycle, Action calls, and similar framework activity can be forwarded to DevTools or to a custom log sink through this channel.
+The Event Center is Agently's framework-level observation channel. It carries **observation events**: model requests, Session application, TriggerFlow lifecycle, Action calls, and similar framework activity can be forwarded to DevTools or to a custom log sink through this channel.
 
-It is separate from TriggerFlow `emit` / `when`: `emit` / `when` changes control flow inside a flow; runtime events only observe what happened.
+It is separate from TriggerFlow `emit` / `when`: `emit` / `when` changes control flow inside a flow; observation events only observe what happened.
+
+Naming compatibility:
+
+- `ObservationEvent` is the preferred name for new code.
+- `RuntimeEvent` is the historical name and remains a compatible alias through the Agently 4.1.x line.
+- Agently 4.2 is the intended replacement line for deprecated event naming.
+- Existing `emit_runtime` / `async_emit_runtime` code continues to work; new code may use `emit_observation` / `async_emit_observation`.
 
 ## Register a hook
 
@@ -38,7 +45,7 @@ Agently.event_center.unregister_hook("docs.capture")
 
 `event_types` can be a string, a list of strings, or `None`. With `None`, the hook receives every event. Sync callbacks are accepted too; Event Center normalizes them to async calls.
 
-## Emit a runtime event
+## Emit an observation event
 
 The usual path is an emitter:
 
@@ -65,9 +72,26 @@ await Agently.event_center.async_emit({
 })
 ```
 
+For top-level convenience APIs:
+
+```python
+await Agently.async_emit_observation({
+    "event_type": "runtime.info",
+    "source": "Docs",
+    "message": "preferred observation API",
+})
+
+# 4.1.x compatibility alias:
+await Agently.async_emit_runtime({
+    "event_type": "runtime.info",
+    "source": "Docs",
+    "message": "legacy runtime API",
+})
+```
+
 ## Event shape
 
-The top-level fields come from `agently.types.data.event.RuntimeEvent`:
+The top-level fields come from `agently.types.data.event.ObservationEvent`. `RuntimeEvent` has the same shape and remains a 4.1.x compatibility alias:
 
 | Field | Meaning |
 |---|---|
@@ -88,7 +112,7 @@ Event Center keeps compatibility with historical TriggerFlow event prefixes. A s
 
 ## Compatibility rules
 
-Runtime events are an observation protocol. Agently-DevTools and custom consumers should fail open:
+Observation events are an observation protocol. Agently-DevTools and custom consumers should fail open:
 
 - Ignore unknown top-level fields and unknown `payload` fields.
 - Do not fail on unknown `event_type` values.
@@ -98,6 +122,6 @@ Runtime events are an observation protocol. Agently-DevTools and custom consumer
 ## See also
 
 - [TriggerFlow Events and Streams](../triggerflow/events-and-streams.md) — flow control and runtime stream
-- [DevTools](devtools.md) — ready-made runtime observation and evaluation bridge
+- [DevTools](devtools.md) — ready-made observation and evaluation bridge
 - [FastAPI Service Exposure](../services/fastapi.md) — forwarding runtime streams to service clients
 - [Coding Agents](../development/coding-agents.md) — coding-agent guidance through Agently Skills

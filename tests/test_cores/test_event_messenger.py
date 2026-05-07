@@ -10,13 +10,13 @@ from agently.builtins.hookers.RuntimeConsoleSinkHooker import (
     should_render_console_event,
     should_render_storage_event,
 )
-from agently.core import EventCenter
+from agently.core import EventCenter, ObservationEventEmitter, RuntimeEventEmitter
 from agently.core.RuntimeContext import bind_runtime_context
-from agently.types.data import RuntimeEvent
+from agently.types.data import ObservationEvent, RuntimeEvent
 from agently.utils import Settings
 
 if TYPE_CHECKING:
-    from agently.types.data import RuntimeEvent
+    from agently.types.data import ObservationEvent
 
 
 _RUNTIME_LOG_KEYS = (
@@ -60,7 +60,7 @@ async def test_async_runtime_emitter():
     emitter = Agently.event_center.create_emitter("Async Test")
     saved_event = None
 
-    async def capture(event: "RuntimeEvent"):
+    async def capture(event: "ObservationEvent"):
         nonlocal saved_event
         saved_event = event
 
@@ -81,7 +81,7 @@ def test_sync_runtime_emitter():
     emitter = Agently.event_center.create_emitter("Test", base_meta={"scope": "unit-test"})
     saved_event = None
 
-    def capture(event: "RuntimeEvent"):
+    def capture(event: "ObservationEvent"):
         nonlocal saved_event
         saved_event = event
 
@@ -99,11 +99,38 @@ def test_sync_runtime_emitter():
 
 
 @pytest.mark.asyncio
+async def test_observation_event_names_are_preferred_aliases():
+    assert issubclass(RuntimeEvent, ObservationEvent)
+    assert issubclass(RuntimeEventEmitter, ObservationEventEmitter)
+    assert hasattr(Agently, "emit_observation")
+    assert hasattr(Agently, "async_emit_observation")
+
+    ec = EventCenter()
+    captured: list[ObservationEvent] = []
+
+    async def capture(event: ObservationEvent):
+        captured.append(event)
+
+    ec.register_hook(capture, event_types="observation.alias", hook_name="capture_observation_alias")
+
+    await ec.async_emit(ObservationEvent(event_type="observation.alias", message="alias object"))
+    await ec.create_observation_emitter("ObservationTest").async_emit(
+        "observation.alias",
+        message="alias emitter",
+    )
+    await ec.async_emit(RuntimeEvent(event_type="observation.alias", message="legacy object"))
+
+    assert all(isinstance(event, ObservationEvent) for event in captured)
+    assert type(captured[2]) is ObservationEvent
+    assert [event.message for event in captured] == ["alias object", "alias emitter", "legacy object"]
+
+
+@pytest.mark.asyncio
 async def test_event_center_filtering():
     ec = EventCenter()
-    captured: list["RuntimeEvent"] = []
+    captured: list["ObservationEvent"] = []
 
-    async def allowed_only(event: "RuntimeEvent"):
+    async def allowed_only(event: "ObservationEvent"):
         captured.append(event)
 
     ec.register_hook(allowed_only, event_types="custom.allowed", hook_name="allowed_only")
@@ -121,9 +148,9 @@ async def test_event_center_filtering():
 @pytest.mark.asyncio
 async def test_event_center_infers_source_for_emitter_and_direct_emit():
     ec = EventCenter()
-    captured: list["RuntimeEvent"] = []
+    captured: list["ObservationEvent"] = []
 
-    async def capture(event: "RuntimeEvent"):
+    async def capture(event: "ObservationEvent"):
         captured.append(event)
 
     ec.register_hook(capture, hook_name="capture")
@@ -150,9 +177,9 @@ async def test_event_center_infers_source_for_emitter_and_direct_emit():
 @pytest.mark.asyncio
 async def test_event_center_matches_triggerflow_aliases_for_legacy_subscriptions():
     ec = EventCenter()
-    captured: list["RuntimeEvent"] = []
+    captured: list["ObservationEvent"] = []
 
-    async def capture(event: "RuntimeEvent"):
+    async def capture(event: "ObservationEvent"):
         captured.append(event)
 
     ec.register_hook(capture, event_types="workflow.execution_started", hook_name="capture")
@@ -168,9 +195,9 @@ async def test_event_center_matches_triggerflow_aliases_for_legacy_subscriptions
 @pytest.mark.asyncio
 async def test_event_center_normalizes_cancelled_error():
     ec = EventCenter()
-    captured: list["RuntimeEvent"] = []
+    captured: list["ObservationEvent"] = []
 
-    async def capture(event: "RuntimeEvent"):
+    async def capture(event: "ObservationEvent"):
         captured.append(event)
 
     ec.register_hook(capture, event_types="runtime.error", hook_name="capture_cancelled_error")
