@@ -97,7 +97,7 @@ async def check_remote(result, ctx):
 
 ## Context object
 
-The second argument is a read-only `OutputValidateContext` with at least:
+The second argument is an `OutputValidateContext` with at least:
 
 - `value`, `input`, `agent_name`, `response_id`
 - `attempt_index`, `retry_count`, `max_retries`
@@ -105,6 +105,34 @@ The second argument is a read-only `OutputValidateContext` with at least:
 - `response_text`, `raw_text`, `parsed_result`, `result_object`, `typed`, `meta`
 
 Use `ctx.attempt_index` if you want different behavior on later attempts (e.g., loosen the rule on retry).
+
+Treat these fields as observational by default, but `ctx.prompt` and `ctx.settings` are live state objects for the current response-attempt chain. In advanced handlers, if you need to adjust the prompt / options / settings for a **later retry**, you can write back through them inside the validator.
+
+For example, lower sampling parameters on the next retry:
+
+```python
+def check(result, ctx):
+    if result.get("score", 0) < 0.8 and ctx.retry_count < ctx.max_retries:
+        ctx.prompt.set("options", {"temperature": 0.2, "top_p": 0.7})
+        return {"ok": False, "reason": "score too low"}
+    return True
+```
+
+Or change settings:
+
+```python
+def check(result, ctx):
+    if should_switch_mode(result):
+        ctx.settings.set("my_plugin.some_flag", True)
+        return False
+    return True
+```
+
+Two caveats:
+
+- These writes affect **later retries only**. They do not change the current attempt that has already completed.
+- These writes also do **not** leak into later fresh requests. Each new `response` is created from a new prompt/settings snapshot at the request/agent layer, so validator write-backs stay inside the current response's retry chain.
+- Do not rely on mutating `opts = ctx.prompt.get("options", {})` in place. `get()` returns a view/copy; use write APIs such as `ctx.prompt.set(...)`, `ctx.prompt.update(...)`, or `ctx.settings.set(...)` if you need the change to persist.
 
 ## Single execution per response
 
