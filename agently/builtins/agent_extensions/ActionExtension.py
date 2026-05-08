@@ -165,10 +165,19 @@ class ActionExtension(BaseAgent):
         return self.use_actions(tools)
 
     @staticmethod
-    def _build_capability_desc(default_desc: str, extra_desc: str | None = None):
-        extra = extra_desc.strip() if isinstance(extra_desc, str) else ""
-        if not extra:
+    def _build_capability_desc(
+        default_desc: str,
+        desc: str | None = None,
+        *,
+        mode: str = "append",
+    ):
+        extra = desc.strip() if isinstance(desc, str) else ""
+        if not extra or mode == "default":
             return default_desc
+        if mode == "override":
+            return extra
+        if mode != "append":
+            raise ValueError("desc_mode must be one of: 'append', 'override', 'default'.")
         return f"{ default_desc }\n\nAdditional guidance: { extra }"
 
     async def async_use_mcp(self, transport: "MCPConfigs | str | Any"):
@@ -209,6 +218,7 @@ class ActionExtension(BaseAgent):
         *,
         action_id: str = "run_python",
         desc: str | None = None,
+        desc_mode: str = "append",
         expose_to_model: bool = True,
         preset_objects: dict[str, object] | None = None,
         base_vars: dict[str, Any] | None = None,
@@ -221,7 +231,7 @@ class ActionExtension(BaseAgent):
         return self.use_action_sandbox(
             "python",
             action_id=action_id,
-            desc=self._build_capability_desc(default_desc, desc),
+            desc=self._build_capability_desc(default_desc, desc, mode=desc_mode),
             expose_to_model=expose_to_model,
             preset_objects=preset_objects,
             base_vars=base_vars,
@@ -235,6 +245,7 @@ class ActionExtension(BaseAgent):
         commands: list[str] | None = None,
         action_id: str = "run_bash",
         desc: str | None = None,
+        desc_mode: str = "append",
         expose_to_model: bool = True,
         timeout: int = 20,
         env: dict[str, str] | None = None,
@@ -244,7 +255,7 @@ class ActionExtension(BaseAgent):
         return self.use_action_sandbox(
             "bash",
             action_id=action_id,
-            desc=self._build_capability_desc(default_desc, desc),
+            desc=self._build_capability_desc(default_desc, desc, mode=desc_mode),
             expose_to_model=expose_to_model,
             allowed_cmd_prefixes=commands,
             allowed_workdir_roots=roots,
@@ -265,6 +276,7 @@ class ActionExtension(BaseAgent):
         max_file_bytes: int = 20000,
         max_search_file_bytes: int = 200000,
         desc: str | None = None,
+        desc_mode: str = "append",
     ):
         root_path = Path(root).expanduser().resolve()
         agent_tag = f"agent-{ self.name }"
@@ -328,7 +340,11 @@ class ActionExtension(BaseAgent):
 
             self.action.register_action(
                 action_id=action_name("list_files"),
-                desc=self._build_capability_desc(f"List files under the workspace root { root_path }.", desc),
+                desc=self._build_capability_desc(
+                    f"List files under the workspace root { root_path }.",
+                    desc,
+                    mode=desc_mode,
+                ),
                 kwargs={
                     "path": (str, "Workspace-relative directory or file path. Default: '.'."),
                     "pattern": (str, "Glob pattern. Default: '*'."),
@@ -360,7 +376,11 @@ class ActionExtension(BaseAgent):
 
             self.action.register_action(
                 action_id=action_name("read_file"),
-                desc=self._build_capability_desc(f"Read a UTF-8 text file under the workspace root { root_path }.", desc),
+                desc=self._build_capability_desc(
+                    f"Read a UTF-8 text file under the workspace root { root_path }.",
+                    desc,
+                    mode=desc_mode,
+                ),
                 kwargs={
                     "path": (str, "Workspace-relative file path."),
                     "max_bytes": (int, f"Maximum bytes to read. Default: { max_file_bytes }."),
@@ -407,7 +427,11 @@ class ActionExtension(BaseAgent):
 
             self.action.register_action(
                 action_id=action_name("search_files"),
-                desc=self._build_capability_desc(f"Search UTF-8 text files under the workspace root { root_path }.", desc),
+                desc=self._build_capability_desc(
+                    f"Search UTF-8 text files under the workspace root { root_path }.",
+                    desc,
+                    mode=desc_mode,
+                ),
                 kwargs={
                     "query": (str, "Exact text to search for."),
                     "path": (str, "Workspace-relative directory or file path. Default: '.'."),
@@ -440,7 +464,11 @@ class ActionExtension(BaseAgent):
 
             self.action.register_action(
                 action_id=action_name("write_file"),
-                desc=self._build_capability_desc(f"Write a UTF-8 text file under the workspace root { root_path }.", desc),
+                desc=self._build_capability_desc(
+                    f"Write a UTF-8 text file under the workspace root { root_path }.",
+                    desc,
+                    mode=desc_mode,
+                ),
                 kwargs={
                     "path": (str, "Workspace-relative file path."),
                     "content": (str, "Text content to write."),

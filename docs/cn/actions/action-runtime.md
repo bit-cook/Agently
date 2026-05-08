@@ -113,7 +113,9 @@ print(calculate("3333+6666=?"))
 `enable_*` helpers。只有在开发自定义 Action 后端时，才需要使用
 `register_action(..., executor=..., execution_environments=[...])`。
 
-`enable_*` helpers 的 `desc=` 是可选补充说明。默认能力描述会始终保留，确保模型仍然看到基础用法和安全边界。
+`enable_*` helpers 的 `desc=` 是可选项。默认会作为补充说明追加，确保模型仍然看到基础用法和安全边界。
+如果你确实要替换默认描述，使用 `desc_mode="override"`；如果要忽略传入描述、只保留内置描述，使用
+`desc_mode="default"`。
 
 ## 兼容入口 —— tools
 

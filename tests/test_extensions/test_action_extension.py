@@ -208,6 +208,33 @@ def test_action_extension_enable_shell_registers_run_bash_action(tmp_path):
     assert Agently.execution_environment.list(scope="action_call") == []
 
 
+def test_action_extension_enable_helper_desc_modes():
+    agent = Agently.create_agent()
+
+    agent.enable_python(action_id="append_python", desc="Only use for sums.")
+    append_spec = agent.action.action_registry.get_spec("append_python")
+    assert append_spec is not None
+    append_desc = str(append_spec.get("desc", ""))
+    assert "Run Python code in a managed safe sandbox" in append_desc
+    assert "Only use for sums." in append_desc
+
+    agent.enable_python(action_id="override_python", desc="Custom calculator only.", desc_mode="override")
+    override_spec = agent.action.action_registry.get_spec("override_python")
+    assert override_spec is not None
+    override_desc = str(override_spec.get("desc", ""))
+    assert override_desc == "Custom calculator only."
+
+    agent.enable_python(action_id="default_python", desc="Ignored guidance.", desc_mode="default")
+    default_spec = agent.action.action_registry.get_spec("default_python")
+    assert default_spec is not None
+    default_desc = str(default_spec.get("desc", ""))
+    assert "Run Python code in a managed safe sandbox" in default_desc
+    assert "Ignored guidance." not in default_desc
+
+    with pytest.raises(ValueError, match="desc_mode"):
+        agent.enable_python(action_id="bad_desc_mode", desc="x", desc_mode="replace")
+
+
 def test_action_extension_enable_workspace_registers_file_actions(tmp_path):
     agent = Agently.create_agent()
     (tmp_path / "notes").mkdir()
