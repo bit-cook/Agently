@@ -164,6 +164,13 @@ class ActionExtension(BaseAgent):
     def use_tools(self, tools: Callable | str | list[str | Callable]):
         return self.use_actions(tools)
 
+    @staticmethod
+    def _build_capability_desc(default_desc: str, extra_desc: str | None = None):
+        extra = extra_desc.strip() if isinstance(extra_desc, str) else ""
+        if not extra:
+            return default_desc
+        return f"{ default_desc }\n\nAdditional guidance: { extra }"
+
     async def async_use_mcp(self, transport: "MCPConfigs | str | Any"):
         await self.action.async_use_mcp(transport, tags=[f"agent-{ self.name }"])
         return self
@@ -207,14 +214,14 @@ class ActionExtension(BaseAgent):
         base_vars: dict[str, Any] | None = None,
         allowed_return_types: list[type] | None = None,
     ):
+        default_desc = (
+            "Run Python code in a managed safe sandbox for deterministic calculation "
+            "or small data shaping. Assign the final value to `result`."
+        )
         return self.use_action_sandbox(
             "python",
             action_id=action_id,
-            desc=desc
-            or (
-                "Run Python code in a managed safe sandbox for deterministic calculation "
-                "or small data shaping. Assign the final value to `result`."
-            ),
+            desc=self._build_capability_desc(default_desc, desc),
             expose_to_model=expose_to_model,
             preset_objects=preset_objects,
             base_vars=base_vars,
@@ -233,10 +240,11 @@ class ActionExtension(BaseAgent):
         env: dict[str, str] | None = None,
     ):
         roots = [str(Path(root).expanduser().resolve())] if root is not None else None
+        default_desc = "Run an allowlisted shell command inside a managed workspace boundary."
         return self.use_action_sandbox(
             "bash",
             action_id=action_id,
-            desc=desc or "Run an allowlisted shell command inside a managed workspace boundary.",
+            desc=self._build_capability_desc(default_desc, desc),
             expose_to_model=expose_to_model,
             allowed_cmd_prefixes=commands,
             allowed_workdir_roots=roots,
@@ -256,6 +264,7 @@ class ActionExtension(BaseAgent):
         expose_to_model: bool = True,
         max_file_bytes: int = 20000,
         max_search_file_bytes: int = 200000,
+        desc: str | None = None,
     ):
         root_path = Path(root).expanduser().resolve()
         agent_tag = f"agent-{ self.name }"
@@ -319,7 +328,7 @@ class ActionExtension(BaseAgent):
 
             self.action.register_action(
                 action_id=action_name("list_files"),
-                desc=f"List files under the workspace root { root_path }.",
+                desc=self._build_capability_desc(f"List files under the workspace root { root_path }.", desc),
                 kwargs={
                     "path": (str, "Workspace-relative directory or file path. Default: '.'."),
                     "pattern": (str, "Glob pattern. Default: '*'."),
@@ -351,7 +360,7 @@ class ActionExtension(BaseAgent):
 
             self.action.register_action(
                 action_id=action_name("read_file"),
-                desc=f"Read a UTF-8 text file under the workspace root { root_path }.",
+                desc=self._build_capability_desc(f"Read a UTF-8 text file under the workspace root { root_path }.", desc),
                 kwargs={
                     "path": (str, "Workspace-relative file path."),
                     "max_bytes": (int, f"Maximum bytes to read. Default: { max_file_bytes }."),
@@ -398,7 +407,7 @@ class ActionExtension(BaseAgent):
 
             self.action.register_action(
                 action_id=action_name("search_files"),
-                desc=f"Search UTF-8 text files under the workspace root { root_path }.",
+                desc=self._build_capability_desc(f"Search UTF-8 text files under the workspace root { root_path }.", desc),
                 kwargs={
                     "query": (str, "Exact text to search for."),
                     "path": (str, "Workspace-relative directory or file path. Default: '.'."),
@@ -431,7 +440,7 @@ class ActionExtension(BaseAgent):
 
             self.action.register_action(
                 action_id=action_name("write_file"),
-                desc=f"Write a UTF-8 text file under the workspace root { root_path }.",
+                desc=self._build_capability_desc(f"Write a UTF-8 text file under the workspace root { root_path }.", desc),
                 kwargs={
                     "path": (str, "Workspace-relative file path."),
                     "content": (str, "Text content to write."),

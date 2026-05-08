@@ -53,6 +53,7 @@ Notes:
 
 - Execution Environment declarations are lazy; a declaration does not start a sandbox or transport.
 - Business examples should prefer `agent.enable_python(...)`, `agent.enable_shell(...)`, and `agent.enable_workspace(...)` over direct manager/provider APIs.
+- `enable_*` helpers provide default action descriptions; `desc=` is only extra guidance.
 - Action dispatch ensures required environments immediately before executor calls.
 - `action_call` scoped handles are released after the action call.
 - TriggerFlow still exposes live resources through `runtime_resources`; managed resources are injected by Execution Environment and released when the execution closes.

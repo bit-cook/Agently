@@ -170,10 +170,15 @@ def test_action_extension_use_sandbox_registers_agent_scoped_bash_action(tmp_pat
 
 def test_action_extension_enable_python_registers_run_python_action():
     agent = Agently.create_agent()
-    agent.enable_python(action_id="test_run_python")
+    agent.enable_python(action_id="test_run_python", desc="Use this only for arithmetic tests.")
 
     action_list = agent.action.get_action_list(tags=[f"agent-{ agent.name }"])
     assert any(action.get("action_id") == "test_run_python" for action in action_list)
+    spec = agent.action.action_registry.get_spec("test_run_python")
+    assert spec is not None
+    spec_desc = str(spec.get("desc", ""))
+    assert "Run Python code in a managed safe sandbox" in spec_desc
+    assert "Use this only for arithmetic tests." in spec_desc
 
     result = agent.action.execute_action(
         "test_run_python",
@@ -186,7 +191,13 @@ def test_action_extension_enable_python_registers_run_python_action():
 
 def test_action_extension_enable_shell_registers_run_bash_action(tmp_path):
     agent = Agently.create_agent()
-    agent.enable_shell(root=tmp_path, commands=["pwd"], action_id="test_run_bash")
+    agent.enable_shell(root=tmp_path, commands=["pwd"], action_id="test_run_bash", desc="Only inspect the cwd.")
+
+    spec = agent.action.action_registry.get_spec("test_run_bash")
+    assert spec is not None
+    spec_desc = str(spec.get("desc", ""))
+    assert "allowlisted shell command" in spec_desc
+    assert "Only inspect the cwd." in spec_desc
 
     result = agent.action.execute_action(
         "test_run_bash",
@@ -202,7 +213,13 @@ def test_action_extension_enable_workspace_registers_file_actions(tmp_path):
     (tmp_path / "notes").mkdir()
     (tmp_path / "notes" / "todo.txt").write_text("fix runtime docs\nship examples\n", encoding="utf-8")
 
-    agent.enable_workspace(root=tmp_path, write=True)
+    agent.enable_workspace(root=tmp_path, write=True, desc="Project notes workspace.")
+
+    spec = agent.action.action_registry.get_spec("read_file")
+    assert spec is not None
+    spec_desc = str(spec.get("desc", ""))
+    assert "Read a UTF-8 text file" in spec_desc
+    assert "Project notes workspace." in spec_desc
 
     listed = agent.action.execute_action("list_files", {"path": "notes"})
     assert listed.get("status") == "success"

@@ -114,6 +114,10 @@ model a common capability such as Python, shell, or workspace access. Use
 `register_action(..., executor=..., execution_environments=[...])` when you are
 building a custom Action backend.
 
+The `desc=` argument on `enable_*` helpers is optional additional guidance. The
+default capability description is always kept so the model still sees the
+baseline usage and safety constraints.
+
 ## Compatibility surface — tools
 
 The older surface still works:
