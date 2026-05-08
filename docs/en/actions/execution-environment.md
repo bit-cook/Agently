@@ -160,8 +160,9 @@ credentials, environment variables, command secrets, or live resource objects.
 
 Runnable examples are available in
 [`examples/execution_environment`](../../../examples/execution_environment/README.md).
-They include a model-free direct action check, an Ollama-driven action-selection
-example, and a DeepSeek-driven issue-processing example.
+Start with the local `agent.enable_python(...)` quickstart, then move to the
+Ollama and DeepSeek model-driven examples. The TriggerFlow example is intended
+for workflow or framework developers who need managed execution-local resources.
 
 ## See also
 

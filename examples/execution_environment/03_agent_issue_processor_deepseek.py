@@ -23,29 +23,23 @@ agent = create_agent(
     "deepseek",
     (
         "You are an issue processor for Agently. "
-        "Use the managed_python_issue_metrics action for deterministic counting and scoring before replying. "
+        "Use the available Python action for deterministic counting and scoring before replying. "
         "Do not invent metrics without calling the action."
     ),
     temperature=0.1,
 )
 
 agent.enable_python(
-    action_id="managed_python_issue_metrics",
-    desc=(
-        "Run Python code inside a managed Python sandbox. "
-        "Use it to calculate deterministic GitHub issue metrics from provided issue text and labels. "
-        "Always assign the final metrics dict to `result`."
-    ),
+    desc="Calculate deterministic GitHub issue metrics from provided issue text and labels. Assign metrics to `result`.",
     expose_to_model=True,
 )
 
 
 if __name__ == "__main__":
-    agent.use_actions("managed_python_issue_metrics")
     agent.input(
         {
             "task": (
-                "Process this GitHub issue. First call managed_python_issue_metrics to compute: "
+                "Process this GitHub issue. First call the Python action to compute: "
                 "label_count, comment_count, whether TriggerFlow is involved, whether DevTools is involved, "
                 "and a severity score where bug=3, triggerflow=2, devtools=1. "
                 "The Python code must assign a dict to `result` with keys label_count, comment_count, "

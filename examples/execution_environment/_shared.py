@@ -13,6 +13,16 @@ from agently.core import Action
 ProviderName = Literal["ollama", "deepseek"]
 
 
+def print_section(title: str, value=None):
+    print(f"\n[{ title }]")
+    if value is None:
+        return
+    if isinstance(value, str):
+        print(value)
+    else:
+        pprint(value)
+
+
 def configure_model(provider: ProviderName, *, temperature: float = 0.0):
     load_dotenv(find_dotenv())
 
@@ -59,18 +69,14 @@ def create_agent(provider: ProviderName, system_prompt: str, *, temperature: flo
 
 
 def print_action_results(records):
-    print("[INTERMEDIATE_ACTION_RESULTS]")
-    pprint(records)
-    print("[INTERMEDIATE_ACTION_RESULTS_FOR_REPLY]")
-    pprint(Action.to_action_results(records))
+    print_section("ACTION_RECORDS", records)
+    print_section("ACTION_RESULTS_INJECTED_TO_REPLY", Action.to_action_results(records))
 
 
 def print_response(response):
-    print("[REPLY]")
-    print(response.result.get_text())
+    print_section("MODEL_REPLY", response.result.get_text())
 
     extra = response.result.full_result_data.get("extra") or {}
     action_logs = extra.get("action_logs", extra.get("tool_logs", [])) if isinstance(extra, dict) else []
 
-    print("[ACTION_LOGS_FROM_RESPONSE_RESULT]")
-    pprint(action_logs)
+    print_section("ACTION_LOGS_FROM_RESPONSE_RESULT", action_logs)
