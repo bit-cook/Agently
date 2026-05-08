@@ -93,6 +93,15 @@ agent.enable_coding_workspace(...)
 
 这些 API 应该描述开发者意图，不应该要求应用开发者理解 `ExecutionEnvironmentHandle`、provider lifecycle 或 executor 内部机制。
 
+### Typing 与 IDE 辅助
+
+公开 API 应该尽可能用 typing 显性表达受限语义。有限选项使用 `Literal`，结构化 payload 使用
+`TypedDict` 或 dataclass，plugin contract 使用 `Protocol`，已知形状的值应使用精确 union type，
+不要用裸 `str` 或 `dict` 承载本可以被类型系统表达的约束。
+
+Typing 是开发体验和 API 稳定性的一部分。例如 `desc_mode` 这类选项应写成
+`Literal["append", "override", "default"]`，同时保留运行时校验来覆盖未类型化或动态调用方。
+
 ## Action 与 Execution Environment
 
 Action 和 Execution Environment 是两个独立层。

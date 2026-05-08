@@ -9,6 +9,7 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator
 from types import SimpleNamespace
+from typing import Any
 from agently import Agently
 from agently.core import PluginManager
 from agently.types.data import AgentlyRequestData
@@ -231,8 +232,9 @@ def test_action_extension_enable_helper_desc_modes():
     assert "Run Python code in a managed safe sandbox" in default_desc
     assert "Ignored guidance." not in default_desc
 
+    bad_mode: Any = "replace"
     with pytest.raises(ValueError, match="desc_mode"):
-        agent.enable_python(action_id="bad_desc_mode", desc="x", desc_mode="replace")
+        agent.enable_python(action_id="bad_desc_mode", desc="x", desc_mode=bad_mode)
 
 
 def test_action_extension_enable_workspace_registers_file_actions(tmp_path):

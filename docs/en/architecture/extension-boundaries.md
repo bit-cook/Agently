@@ -107,6 +107,18 @@ These APIs should describe developer intent. They should not force app
 developers to understand `ExecutionEnvironmentHandle`, provider lifecycle, or
 executor internals.
 
+### Typing And IDE Assistance
+
+Public APIs should expose constrained semantics through typing whenever
+practical. Use `Literal` for finite option sets, `TypedDict` or dataclasses for
+structured payloads, `Protocol` for plugin contracts, and precise union types
+instead of bare `str` or `dict` when values have a known shape.
+
+Typing is part of developer experience and API stability. For example, an option
+such as `desc_mode` should be typed as `Literal["append", "override",
+"default"]`, while runtime validation should remain for untyped or dynamic
+callers.
+
 ## Action And Execution Environment
 
 Action and Execution Environment are separate layers.

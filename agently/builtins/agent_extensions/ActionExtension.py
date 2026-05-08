@@ -14,7 +14,7 @@
 
 import warnings
 from pathlib import Path
-from typing import Any, Callable, TYPE_CHECKING, ParamSpec, TypeVar
+from typing import Any, Callable, Literal, TYPE_CHECKING, ParamSpec, TypeAlias, TypeVar
 
 from agently.core import BaseAgent
 from agently.utils import FunctionShifter
@@ -28,6 +28,7 @@ from agently.base import action as global_action
 
 P = ParamSpec("P")
 R = TypeVar("R")
+CapabilityDescMode: TypeAlias = Literal["append", "override", "default"]
 
 
 class ActionExtension(BaseAgent):
@@ -169,8 +170,8 @@ class ActionExtension(BaseAgent):
         default_desc: str,
         desc: str | None = None,
         *,
-        mode: str = "append",
-    ):
+        mode: CapabilityDescMode = "append",
+    ) -> str:
         extra = desc.strip() if isinstance(desc, str) else ""
         if not extra or mode == "default":
             return default_desc
@@ -218,7 +219,7 @@ class ActionExtension(BaseAgent):
         *,
         action_id: str = "run_python",
         desc: str | None = None,
-        desc_mode: str = "append",
+        desc_mode: CapabilityDescMode = "append",
         expose_to_model: bool = True,
         preset_objects: dict[str, object] | None = None,
         base_vars: dict[str, Any] | None = None,
@@ -245,7 +246,7 @@ class ActionExtension(BaseAgent):
         commands: list[str] | None = None,
         action_id: str = "run_bash",
         desc: str | None = None,
-        desc_mode: str = "append",
+        desc_mode: CapabilityDescMode = "append",
         expose_to_model: bool = True,
         timeout: int = 20,
         env: dict[str, str] | None = None,
@@ -276,7 +277,7 @@ class ActionExtension(BaseAgent):
         max_file_bytes: int = 20000,
         max_search_file_bytes: int = 200000,
         desc: str | None = None,
-        desc_mode: str = "append",
+        desc_mode: CapabilityDescMode = "append",
     ):
         root_path = Path(root).expanduser().resolve()
         agent_tag = f"agent-{ self.name }"
