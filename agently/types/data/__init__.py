@@ -102,3 +102,13 @@ from .action import (
     ActionSpec,
     ActionStatus,
 )
+
+from .execution_environment import (
+    ExecutionEnvironmentDecision,
+    ExecutionEnvironmentHandle,
+    ExecutionEnvironmentKind,
+    ExecutionEnvironmentPolicy,
+    ExecutionEnvironmentRequirement,
+    ExecutionEnvironmentScope,
+    ExecutionEnvironmentStatus,
+)

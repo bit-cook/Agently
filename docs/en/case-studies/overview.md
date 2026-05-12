@@ -19,7 +19,7 @@ These are **examples**, not prescriptions. They highlight common shapes you'll s
 | [Daily News Collector](daily-news-collector.md) | TriggerFlow + tools + structured output + scheduled run |
 | [Talk to Control](talk-to-control.md) | Conversational agent + actions on a domain object + streaming |
 | [Knowledge Base Dialog](kb-dialog.md) | Embeddings + retrieval + session memory + structured answer |
-| [PRD → Test Cases](prd-testcases.md) | Long-input structured output + ensure_keys + per-section streaming |
+| [PRD → Test Cases](prd-testcases.md) | Long-input structured output + ensure-marked required fields + per-section streaming |
 | [Survey Dialog](survey-dialog.md) | Multi-turn session + dynamic prompts + branching follow-ups |
 
 ## What each case study covers

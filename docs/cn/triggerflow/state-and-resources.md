@@ -116,6 +116,16 @@ restored.load(saved)
 
 `load()` 后调用方负责重新注入兼容的 resource。
 
+### 托管 execution resources
+
+当你向 `flow.create_execution(...)`、`flow.start_execution(...)` 或
+`flow.async_start(...)` 传入 `execution_environments=[...]` 时，
+`runtime_resources` 也可以接收来自 `Agently.execution_environment` 的托管资源。
+
+chunk 内仍然通过 `data.require_resource(...)` 读取。差异在 ownership：
+Execution Environment Manager 负责启动/复用资源，并在 execution close 时释放。
+手动传入的 `runtime_resources={...}` 仍是 unmanaged。
+
 ## 决策表
 
 | 你存的是 | 用 |
@@ -136,5 +146,6 @@ restored.load(saved)
 ## 另见
 
 - [Lifecycle](lifecycle.md) —— `close()` 返回什么
+- [Execution Environment](../actions/execution-environment.md) —— 托管 live resource 生命周期
 - [持久化与 Blueprint](persistence-and-blueprint.md) —— `save` / `load` 语义
 - [兼容](compatibility.md) —— `runtime_data` 是 `state` 的 deprecated 别名

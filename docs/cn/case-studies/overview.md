@@ -19,7 +19,7 @@ keywords: Agently, 案例研究, 例子, KB dialog, daily news, talk to control
 | [日常资讯收集器](daily-news-collector.md) | TriggerFlow + tool + 结构化输出 + 计划任务 |
 | [Talk to Control](talk-to-control.md) | 对话 agent + 对域对象的 action + 流式 |
 | [知识库对话](kb-dialog.md) | embedding + 检索 + 会话记忆 + 结构化回答 |
-| [PRD → 测试用例](prd-testcases.md) | 长输入结构化输出 + ensure_keys + 分段流式 |
+| [PRD → 测试用例](prd-testcases.md) | 长输入结构化输出 + ensure 标记必填字段 + 分段流式 |
 | [问卷对话](survey-dialog.md) | 多轮 session + 动态 prompt + 分支跟进 |
 
 ## 每个案例覆盖什么

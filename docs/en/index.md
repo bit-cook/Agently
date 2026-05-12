@@ -66,7 +66,8 @@ This handbook is organized as a learning path. If you have not run a single requ
    - [Playbooks](playbooks/overview.md)
    - [Case Studies](case-studies/overview.md)
 
-9. **Reference**
+9. **Architecture and reference**
+   - [Extension Boundaries](architecture/extension-boundaries.md)
    - [Capability Map](reference/capability-map.md)
    - [Glossary](reference/glossary.md)
 

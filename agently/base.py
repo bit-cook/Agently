@@ -19,6 +19,7 @@ from agently.builtins.hookers.RuntimeConsoleSinkHooker import coerce_runtime_log
 from agently.utils import Settings, create_logger
 from agently.core import (
     Action,
+    ExecutionEnvironmentManager,
     PluginManager,
     EventCenter,
     Tool,
@@ -59,6 +60,11 @@ logging.getLogger("httpx").setLevel(httpx_level)
 logging.getLogger("httpcore").setLevel(httpx_level)
 action = Action(plugin_manager, settings)
 tool = action
+execution_environment = ExecutionEnvironmentManager(
+    plugin_manager=plugin_manager,
+    settings=settings,
+    event_center=event_center,
+)
 action_registry = action.action_registry
 _load_default_actions(action_registry)
 action_dispatcher = action.action_dispatcher
@@ -192,6 +198,7 @@ class AgentlyMain(Generic[A]):
         self.async_print = async_print
         self.action = action
         self.tool = tool
+        self.execution_environment = execution_environment
         self.action_registry = action_registry
         self.action_dispatcher = action_dispatcher
         self.action_runtime = action_runtime

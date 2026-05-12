@@ -10,6 +10,6 @@ Suggested reading order:
 6. [Models](models/): protocol-level requesters and provider configuration.
 7. [TriggerFlow](triggerflow/): orchestration, state, events, persistence, and pause/resume.
 8. [Playbooks](playbooks/) and [Case Studies](case-studies/): scenario-level combinations.
-9. [Reference](reference/): capability map and glossary.
+9. [Architecture](architecture/) and [Reference](reference/): extension boundaries, capability map, and glossary.
 
 Start from [`index.md`](index.md).

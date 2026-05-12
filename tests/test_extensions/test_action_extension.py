@@ -9,6 +9,7 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator
 from types import SimpleNamespace
+from typing import Any
 from agently import Agently
 from agently.core import PluginManager
 from agently.types.data import AgentlyRequestData
@@ -166,6 +167,107 @@ def test_action_extension_use_sandbox_registers_agent_scoped_bash_action(tmp_pat
     )
     assert result.get("status") == "success"
     assert str(tmp_path) in str(result.get("data"))
+
+
+def test_action_extension_enable_python_registers_run_python_action():
+    agent = Agently.create_agent()
+    agent.enable_python(action_id="test_run_python", desc="Use this only for arithmetic tests.")
+
+    action_list = agent.action.get_action_list(tags=[f"agent-{ agent.name }"])
+    assert any(action.get("action_id") == "test_run_python" for action in action_list)
+    spec = agent.action.action_registry.get_spec("test_run_python")
+    assert spec is not None
+    spec_desc = str(spec.get("desc", ""))
+    assert "Run Python code in a managed safe sandbox" in spec_desc
+    assert "Use this only for arithmetic tests." in spec_desc
+
+    result = agent.action.execute_action(
+        "test_run_python",
+        {"python_code": ["numbers = [1, 2, 3]", "result = sum(numbers)"]},
+    )
+    assert result.get("status") == "success"
+    assert result.get("data", {}).get("result") == 6
+    assert Agently.execution_environment.list(scope="action_call") == []
+
+
+def test_action_extension_enable_shell_registers_run_bash_action(tmp_path):
+    agent = Agently.create_agent()
+    agent.enable_shell(root=tmp_path, commands=["pwd"], action_id="test_run_bash", desc="Only inspect the cwd.")
+
+    spec = agent.action.action_registry.get_spec("test_run_bash")
+    assert spec is not None
+    spec_desc = str(spec.get("desc", ""))
+    assert "allowlisted shell command" in spec_desc
+    assert "Only inspect the cwd." in spec_desc
+
+    result = agent.action.execute_action(
+        "test_run_bash",
+        {"cmd": "pwd", "workdir": str(tmp_path)},
+    )
+    assert result.get("status") == "success"
+    assert str(tmp_path) in str(result.get("data"))
+    assert Agently.execution_environment.list(scope="action_call") == []
+
+
+def test_action_extension_enable_helper_desc_modes():
+    agent = Agently.create_agent()
+
+    agent.enable_python(action_id="append_python", desc="Only use for sums.")
+    append_spec = agent.action.action_registry.get_spec("append_python")
+    assert append_spec is not None
+    append_desc = str(append_spec.get("desc", ""))
+    assert "Run Python code in a managed safe sandbox" in append_desc
+    assert "Only use for sums." in append_desc
+
+    agent.enable_python(action_id="override_python", desc="Custom calculator only.", desc_mode="override")
+    override_spec = agent.action.action_registry.get_spec("override_python")
+    assert override_spec is not None
+    override_desc = str(override_spec.get("desc", ""))
+    assert override_desc == "Custom calculator only."
+
+    agent.enable_python(action_id="default_python", desc="Ignored guidance.", desc_mode="default")
+    default_spec = agent.action.action_registry.get_spec("default_python")
+    assert default_spec is not None
+    default_desc = str(default_spec.get("desc", ""))
+    assert "Run Python code in a managed safe sandbox" in default_desc
+    assert "Ignored guidance." not in default_desc
+
+    bad_mode: Any = "replace"
+    with pytest.raises(ValueError, match="desc_mode"):
+        agent.enable_python(action_id="bad_desc_mode", desc="x", desc_mode=bad_mode)
+
+
+def test_action_extension_enable_workspace_registers_file_actions(tmp_path):
+    agent = Agently.create_agent()
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "todo.txt").write_text("fix runtime docs\nship examples\n", encoding="utf-8")
+
+    agent.enable_workspace(root=tmp_path, write=True, desc="Project notes workspace.")
+
+    spec = agent.action.action_registry.get_spec("read_file")
+    assert spec is not None
+    spec_desc = str(spec.get("desc", ""))
+    assert "Read a UTF-8 text file" in spec_desc
+    assert "Project notes workspace." in spec_desc
+
+    listed = agent.action.execute_action("list_files", {"path": "notes"})
+    assert listed.get("status") == "success"
+    assert listed.get("data") == ["notes/todo.txt"]
+
+    searched = agent.action.execute_action("search_files", {"query": "runtime", "path": "notes"})
+    assert searched.get("status") == "success"
+    assert searched.get("data", [])[0]["line"] == 1
+
+    read = agent.action.execute_action("read_file", {"path": "notes/todo.txt"})
+    assert read.get("status") == "success"
+    assert "ship examples" in read.get("data", {}).get("content", "")
+
+    written = agent.action.execute_action("write_file", {"path": "notes/out.txt", "content": "ok"})
+    assert written.get("status") == "success"
+    assert (tmp_path / "notes" / "out.txt").read_text(encoding="utf-8") == "ok"
+
+    outside = agent.action.execute_action("read_file", {"path": "../outside.txt"})
+    assert outside.get("status") == "error"
 
 
 @pytest.mark.asyncio

@@ -23,6 +23,7 @@ AgentlyPluginType = Literal[
     "ActionRuntime",
     "ActionFlow",
     "ActionExecutor",
+    "ExecutionEnvironmentProvider",
 ]
 
 

@@ -106,6 +106,59 @@ restored.load_blueprint(blueprint)
 
 Key constraint: any chunk used in the blueprint must be **registered by the same handler name** on the restored side. Without `register_chunk_handler(...)`, the loader can't bind names to functions and the load fails.
 
+## Recommended service packaging
+
+For service code, prefer this packaging shape:
+
+1. Put chunks and conditions in module-level named functions.
+2. Keep flow construction in a small builder/factory function.
+3. Inject stable live dependencies with `flow.update_runtime_resources(...)`.
+4. Inject request- or tenant-specific dependencies with per-execution
+   `runtime_resources={...}`.
+5. Store per-request business data in execution `state`, not in `flow_data`.
+
+```python
+async def analyze(data):
+    agent_factory = data.require_resource("agent_factory")
+    prompts_path = data.require_resource("prompts_path")
+    question = data.input
+    data.set_state("question", question)
+    agent = agent_factory()
+    return agent.load_yaml_prompt(
+        prompts_path,
+        prompt_key_path="analyze",
+        mappings={"question": question},
+    ).start()
+
+
+async def answer(data):
+    policy_doc = data.require_resource("policy_doc")
+    question = data.get_state("question")
+    return f"{policy_doc}\n\nQ: {question}"
+
+
+def build_policy_flow() -> TriggerFlow:
+    flow = TriggerFlow(name="policy")
+    flow.update_runtime_resources(
+        agent_factory=make_agent,
+        prompts_path=PROMPTS_DIR / "policy.yaml",
+    )
+    flow.to(analyze).to(answer)
+    return flow
+
+
+flow = build_policy_flow()
+snapshot = flow.start(
+    "travel subsidy?",
+    runtime_resources={"policy_doc": tenant_policy_doc},
+)
+```
+
+This keeps business modules light while preserving config/blueprint
+compatibility. Closures are fine for short scripts, but named top-level handlers
+are the recommended service shape because they are easier to test, register,
+export, and reload.
+
 ### When to use blueprints
 
 - Authoring flows declaratively in YAML / JSON config and loading them at startup.

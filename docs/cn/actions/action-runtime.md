@@ -28,6 +28,7 @@ Agently 的 action 栈在编排层之下有三个可替换插件层：
 | `ActionRuntime` | 规划协议、action 调用归一化、默认执行编排 | `AgentlyActionRuntime` |
 | `ActionFlow` | `ActionRuntime` 与 flow 表示之间的桥 | `TriggerFlowActionFlow` |
 | `ActionExecutor` | 单个 action 实际怎么跑 | `LocalFunctionActionExecutor`、`MCPActionExecutor`、`PythonSandboxActionExecutor`、`BashSandboxActionExecutor` |
+| `ExecutionEnvironment` | executor 调用前需要准备的托管执行依赖 | MCP、Bash、Python providers |
 
 `agently.core.Action` 是门面，连线：
 
@@ -101,9 +102,20 @@ print(calculate("3333+6666=?"))
 | `@agent.action_func` | 标记函数为 action，从签名 + docstring 推 schema |
 | `agent.use_actions(actions)` | 在 agent 上注册 list、单个 action 或字符串名 action |
 | `agent.use_actions(["name1", "name2"])` | 按名注册预注册的 action |
+| `agent.enable_python(...)` | 挂载托管 `run_python` action，用于确定性代码执行 |
+| `agent.enable_shell(...)` | 挂载带 workspace 与命令 allowlist 的托管 `run_bash` action |
+| `agent.enable_workspace(...)` | 挂载 workspace 文件列表、搜索、读取、写入 actions |
 | `@agent.auto_func` | 把 Python 函数签名 + docstring 变成模型驱动的实现，使用 agent 的 action |
 | `agent.get_action_result()` | 请求后取 action 调用记录 |
 | `extra.action_logs` | action loop 期间产生的结构化日志 |
+
+应用代码要给模型开放 Python、shell、workspace 等常见能力时，优先使用
+`enable_*` helpers。只有在开发自定义 Action 后端时，才需要使用
+`register_action(..., executor=..., execution_environments=[...])`。
+
+`enable_*` helpers 的 `desc=` 是可选项。默认会作为补充说明追加，确保模型仍然看到基础用法和安全边界。
+如果你确实要替换默认描述，使用 `desc_mode="override"`；如果要忽略传入描述、只保留内置描述，使用
+`desc_mode="default"`。
 
 ## 兼容入口 —— tools
 
@@ -154,10 +166,12 @@ context 字段含 `prompt`、`settings`、`agent_name`、`round_index`、`max_ro
 | 规划协议或调用归一化 | `ActionRuntime` |
 | runtime 与 flow 之间的编排形态 | `ActionFlow` |
 | 多个 action 调用之上的更高层流控 | 用 `TriggerFlow` 在 runtime 之上 —— 不要把它塞进 executor |
+| MCP/sandbox/process 类依赖的生命周期 | 声明 `ExecutionEnvironment` requirement —— 不要把生命周期藏进 executor |
 
 ## 另见
 
 - [Actions 概览](overview.md) —— Action Runtime 到哪里停止、编排从哪里开始
+- [Execution Environment](execution-environment.md) —— 托管 MCP/sandbox 执行依赖
 - [工具](tools.md) —— 兼容入口详细
 - [MCP](mcp.md) —— `agent.use_mcp(...)`
 - [TriggerFlow 概览](../triggerflow/overview.md) —— action 之上的编排

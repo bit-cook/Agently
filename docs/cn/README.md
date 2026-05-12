@@ -10,6 +10,6 @@
 6. [Models](models/)：协议层 requester 与 provider 配置。
 7. [TriggerFlow](triggerflow/)：流程编排、状态、事件、持久化和暂停恢复。
 8. [Playbooks](playbooks/) 与 [案例](case-studies/)：按场景组合这些能力。
-9. [Reference](reference/)：能力地图和术语表。
+9. [Architecture](architecture/) 与 [Reference](reference/)：扩展边界、能力地图和术语表。
 
 从首页开始：[`index.md`](index.md)。

@@ -10,6 +10,8 @@ keywords: Agently, output, validate, ensure_keys, retry, max_retries
 
 第一次消费结构化 response 结果时，校验流水线会运行并缓存结果。它的执行顺序固定，每一步都共用同一份 retry 预算。
 
+对 Agently `4.1.0.1+`，默认 authoring 路径是：在 `.output(...)` 里直接用第三槽 `ensure` 标记固定必填叶子，再由运行时把这些标记编译成 `ensure_keys`。只有当必填路径是运行时决定、条件分支决定，或用静态 schema 不好表达时，才手动传 `ensure_keys=`。
+
 ## 流水线
 
 ```text
@@ -95,7 +97,7 @@ async def check_remote(result, ctx):
 
 ## Context 对象
 
-handler 第二个参数是只读的 `OutputValidateContext`，至少包含：
+handler 第二个参数是 `OutputValidateContext`，至少包含：
 
 - `value`、`input`、`agent_name`、`response_id`
 - `attempt_index`、`retry_count`、`max_retries`
@@ -103,6 +105,34 @@ handler 第二个参数是只读的 `OutputValidateContext`，至少包含：
 - `response_text`、`raw_text`、`parsed_result`、`result_object`、`typed`、`meta`
 
 需要根据「第几次尝试」改变行为时（如最后一次放宽规则），用 `ctx.attempt_index`。
+
+默认把这些字段当作观察上下文来读；但 `ctx.prompt` 与 `ctx.settings` 是当前 response attempt 链路上的 live state。高级用法里，如果你要调整**后续 retry** 的 prompt / options / settings，可以在 validator 里直接写回它们。
+
+例如，降低下一次 retry 的采样参数：
+
+```python
+def check(result, ctx):
+    if result.get("score", 0) < 0.8 and ctx.retry_count < ctx.max_retries:
+        ctx.prompt.set("options", {"temperature": 0.2, "top_p": 0.7})
+        return {"ok": False, "reason": "score too low"}
+    return True
+```
+
+或者改 settings：
+
+```python
+def check(result, ctx):
+    if should_switch_mode(result):
+        ctx.settings.set("my_plugin.some_flag", True)
+        return False
+    return True
+```
+
+注意两点：
+
+- 这些写入只影响**后续 retry**，不会改变当前这次已经完成的 attempt。
+- 这些写入也**不会污染后续新请求**。每次新建 `response` 时都会从 request / agent 层重新做一次 prompt 与 settings 快照；validator 里的写回只停留在当前 response 的 retry 链里。
+- 不要依赖 `opts = ctx.prompt.get("options", {})` 后再原地改 `opts`。`get()` 返回的是 view/copy；要持久生效，使用 `ctx.prompt.set(...)`、`ctx.prompt.update(...)`、`ctx.settings.set(...)` 这类写接口。
 
 ## 单 response 单次执行
 
@@ -132,7 +162,7 @@ phase 1 **没有** `model.validation_passed` 事件 —— 通过是默认且静
 - `ensure_keys` 处理**路径存在性**（由 `.output(...)` 中的 `ensure` 编译而来）。
 - `.validate(...)` 处理基于实际内容的**值规则**。
 
-「这字段必须出现」用 `ensure_keys`。「这字段必须满足某业务规则」用 `.validate(...)`。
+固定必填叶子优先写 `(TypeExpr, "description", True)`，不要把同一批路径再手动重复到 `ensure_keys=`。条件型或运行时决定的路径，再用手动 `ensure_keys`。而「这字段必须满足某业务规则」用 `.validate(...)`。
 
 ## 常见模式
 

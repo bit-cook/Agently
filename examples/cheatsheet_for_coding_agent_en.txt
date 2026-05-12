@@ -8,7 +8,7 @@ goal: build reliable AI workflows with controllable output + action + memory + o
 primitives:
   settings: Agently.set_settings + agent.set_settings
   prompt: input + instruct + info + output
-  output_control: typed schema + ensure_keys + retries
+  output_control: typed schema + ensure flags + retries
   response: get_text/get_data + get_generator(type=instant/typed_delta/specific)
   actions: built-in Search/Browse + custom action_func
   knowledge_base: ChromaCollection + embeddings agent + query -> info
@@ -61,11 +61,11 @@ result = (
     agent.input("Summarize this repo")
     .output(
         {
-            "summary": ("str", "short summary"),
-            "risks": [("str", "risk item")],
+            "summary": ("str", "short summary", True),
+            "risks": [("str", "risk item", True)],
         }
     )
-    .start(ensure_keys=["summary", "risks[*]"], max_retries=2)
+    .start(max_retries=2)
 )
 ```
 
@@ -182,7 +182,7 @@ Use two output fields: one for user-facing content, one for app actions.
 4. Support `reset` and `exit` anytime
 
 ## Reliability checklist
-- Define output schema and use `ensure_keys` for critical fields.
+- Define output schema and use tuple `ensure` for fixed critical fields.
 - Keep knowledge base initialization outside the turn loop.
 - Stream only once per label (avoid tagging every token).
 - Prefer execution state for execution-scoped memory.

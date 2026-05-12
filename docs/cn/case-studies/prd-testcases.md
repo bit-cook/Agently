@@ -1,6 +1,6 @@
 ---
 title: PRD → 测试用例
-description: 长结构化输入 + 分段流式 + ensure_keys，给一个完整测试用例生成器。
+description: 长结构化输入 + 分段流式 + ensure 标记必填字段，给一个完整测试用例生成器。
 keywords: Agently, 案例研究, PRD, 测试用例, 结构化输出, 流式
 ---
 

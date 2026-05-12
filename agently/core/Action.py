@@ -43,6 +43,14 @@ from agently.types.data import (
     ActionResult,
     ActionRunContext,
     ActionSpec,
+    ExecutionEnvironmentHandle,
+    ExecutionEnvironmentPolicy,
+    ExecutionEnvironmentRequirement,
+)
+from agently.core.ExecutionEnvironment import (
+    ExecutionEnvironmentApprovalDenied,
+    ExecutionEnvironmentApprovalRequired,
+    ExecutionEnvironmentError,
 )
 from agently.types.plugins import (
     ActionExecutionHandler,
@@ -282,6 +290,96 @@ class ActionDispatcher:
         result.setdefault("executor_type", str(spec.get("executor_type", "")))
         return cast(ActionResult, result)
 
+    @staticmethod
+    def _to_execution_environment_policy(policy: ActionPolicy) -> ExecutionEnvironmentPolicy:
+        keys = {
+            "approval_mode",
+            "workspace_roots",
+            "path_allowlist",
+            "path_denylist",
+            "allowed_cmd_prefixes",
+            "network_mode",
+            "timeout_seconds",
+            "max_output_bytes",
+            "read_only",
+            "allow_create",
+            "allow_update",
+            "allow_delete",
+        }
+        return cast(ExecutionEnvironmentPolicy, {key: policy[key] for key in keys if key in policy})
+
+    def _resolve_execution_environment_owner_id(
+        self,
+        settings: Settings,
+        requirement: ExecutionEnvironmentRequirement,
+    ):
+        if requirement.get("owner_id"):
+            return str(requirement.get("owner_id", ""))
+        configured = settings.get("execution_environment.owner_id", None)
+        if isinstance(configured, str) and configured:
+            return configured
+        session_id = settings.get("runtime.session_id", None)
+        if isinstance(session_id, str) and session_id:
+            return session_id
+        return self.registry.name or "Action"
+
+    def _prepare_execution_environment_requirements(
+        self,
+        *,
+        spec: ActionSpec,
+        settings: Settings,
+        policy: ActionPolicy,
+    ):
+        requirements = spec.get("execution_environments", [])
+        if not isinstance(requirements, list):
+            return []
+        prepared: list[ExecutionEnvironmentRequirement] = []
+        action_policy = self._to_execution_environment_policy(policy)
+        for requirement in requirements:
+            if not isinstance(requirement, dict):
+                continue
+            prepared_requirement = cast(ExecutionEnvironmentRequirement, dict(requirement))
+            requirement_policy = dict(prepared_requirement.get("policy", {}))
+            requirement_policy.update(action_policy)
+            prepared_requirement["policy"] = cast(ExecutionEnvironmentPolicy, requirement_policy)
+            prepared_requirement.setdefault("scope", "action_call")
+            prepared_requirement.setdefault("owner_id", self._resolve_execution_environment_owner_id(settings, prepared_requirement))
+            prepared_requirement.setdefault("resource_key", str(spec.get("action_id", prepared_requirement.get("kind", ""))))
+            prepared.append(prepared_requirement)
+        return prepared
+
+    def _execution_environment_error_result(
+        self,
+        *,
+        spec: ActionSpec,
+        action_call: ActionCall,
+        status: str,
+        error: str,
+        approval: ActionApproval | None = None,
+    ) -> ActionResult:
+        action_id = str(spec.get("action_id", ""))
+        action_input = action_call.get("action_input", {})
+        if not isinstance(action_input, dict):
+            action_input = {}
+        return cast(ActionResult, {
+            "ok": False,
+            "status": status,
+            "purpose": str(action_call.get("purpose", f"Use { action_id }")),
+            "action_id": action_id,
+            "tool_name": str(spec.get("name", action_id)),
+            "kwargs": dict(action_input),
+            "todo_suggestion": str(action_call.get("todo_suggestion", "")),
+            "next": str(action_call.get("next", action_call.get("todo_suggestion", ""))),
+            "success": False,
+            "result": None,
+            "data": None,
+            "approval": approval or {},
+            "error": error,
+            "expose_to_model": bool(spec.get("expose_to_model", True)),
+            "side_effect_level": cast(Any, spec.get("side_effect_level", "read")),
+            "executor_type": str(spec.get("executor_type", "")),
+        })
+
     async def async_execute(
         self,
         action_id: str,
@@ -377,6 +475,75 @@ class ActionDispatcher:
                 "executor_type": str(spec.get("executor_type", "")),
             }
 
+        from agently.base import execution_environment
+
+        ensured_handles: list[ExecutionEnvironmentHandle] = []
+        environment_resources: dict[str, Any] = {}
+        environment_handles: dict[str, ExecutionEnvironmentHandle] = {}
+        try:
+            for requirement in self._prepare_execution_environment_requirements(
+                spec=spec,
+                settings=execution_settings,
+                policy=policy,
+            ):
+                handle = await execution_environment.async_ensure(
+                    requirement,
+                    owner_id=str(requirement.get("owner_id", "")),
+                )
+                ensured_handles.append(handle)
+                resource_key = str(handle.get("resource_key", requirement.get("resource_key", "")))
+                if resource_key:
+                    environment_handles[resource_key] = handle
+                    environment_resources[resource_key] = handle.get("resource")
+            if environment_handles:
+                action_call["execution_environment_handles"] = environment_handles
+                action_call["execution_environment_resources"] = environment_resources
+        except ExecutionEnvironmentApprovalRequired as error:
+            for handle in ensured_handles:
+                await execution_environment.async_release(handle)
+            approval: ActionApproval = {
+                "required": True,
+                "reason": error.code,
+                "approval_mode": str(error.payload.get("policy", {}).get("approval_mode", "auto")),
+                "missing_permissions": [error.code],
+                "suggested_policy": cast(ActionPolicy, error.payload.get("policy", {})),
+                "message": str(error),
+            }
+            return self._execution_environment_error_result(
+                spec=spec,
+                action_call=action_call,
+                status="approval_required",
+                error=str(error),
+                approval=approval,
+            )
+        except ExecutionEnvironmentApprovalDenied as error:
+            for handle in ensured_handles:
+                await execution_environment.async_release(handle)
+            return self._execution_environment_error_result(
+                spec=spec,
+                action_call=action_call,
+                status="blocked",
+                error=str(error),
+            )
+        except ExecutionEnvironmentError as error:
+            for handle in ensured_handles:
+                await execution_environment.async_release(handle)
+            return self._execution_environment_error_result(
+                spec=spec,
+                action_call=action_call,
+                status="error",
+                error=str(error),
+            )
+        except Exception as error:
+            for handle in ensured_handles:
+                await execution_environment.async_release(handle)
+            return self._execution_environment_error_result(
+                spec=spec,
+                action_call=action_call,
+                status="error",
+                error=str(error),
+            )
+
         timeout = policy.get("timeout_seconds", None)
         timeout_seconds = float(timeout) if isinstance(timeout, (int, float)) else 0.0
         try:
@@ -398,6 +565,9 @@ class ActionDispatcher:
                     settings=execution_settings,
                 )
         except asyncio.TimeoutError:
+            for handle in ensured_handles:
+                if handle.get("scope") == "action_call":
+                    await execution_environment.async_release(handle)
             return {
                 "ok": False,
                 "status": "error",
@@ -416,6 +586,9 @@ class ActionDispatcher:
                 "executor_type": str(spec.get("executor_type", "")),
             }
         except Exception as error:
+            for handle in ensured_handles:
+                if handle.get("scope") == "action_call":
+                    await execution_environment.async_release(handle)
             return {
                 "ok": False,
                 "status": "error",
@@ -433,6 +606,10 @@ class ActionDispatcher:
                 "side_effect_level": cast(Any, spec.get("side_effect_level", "read")),
                 "executor_type": str(spec.get("executor_type", "")),
             }
+        finally:
+            for handle in ensured_handles:
+                if handle.get("scope") == "action_call":
+                    await execution_environment.async_release(handle)
 
         result = self._normalize_executor_output(
             spec=spec,
@@ -588,6 +765,7 @@ class Action:
         replay_safe: bool,
         expose_to_model: bool,
         executor_type: str,
+        execution_environments: list[ExecutionEnvironmentRequirement] | None,
         meta: dict[str, Any] | None,
     ) -> "ActionSpec":
         spec = cast(ActionSpec, {
@@ -603,6 +781,7 @@ class Action:
             "replay_safe": replay_safe,
             "expose_to_model": expose_to_model,
             "executor_type": executor_type,
+            "execution_environments": execution_environments if execution_environments is not None else [],
             "meta": meta if meta is not None else {},
         })
         if returns is not None:
@@ -625,6 +804,7 @@ class Action:
         sandbox_required: bool = False,
         replay_safe: bool = True,
         expose_to_model: bool = True,
+        execution_environments: list[ExecutionEnvironmentRequirement] | None = None,
         meta: dict[str, Any] | None = None,
     ):
         if executor is None:
@@ -646,6 +826,7 @@ class Action:
             replay_safe=replay_safe,
             expose_to_model=expose_to_model,
             executor_type=executor_type,
+            execution_environments=execution_environments,
             meta=meta,
         )
         self.action_registry.register(spec, executor, func=func)
@@ -905,6 +1086,17 @@ class Action:
                     sandbox_required=sandbox_required,
                     replay_safe=replay_safe,
                     expose_to_model=expose_to_model,
+                    execution_environments=cast(list[ExecutionEnvironmentRequirement], [
+                        {
+                            "requirement_id": f"mcp:{ tool.name }",
+                            "kind": "mcp",
+                            "scope": "agent",
+                            "resource_key": tool.name,
+                            "config": {"transport": transport},
+                            "policy": cast(ExecutionEnvironmentPolicy, default_policy or {}),
+                            "approval_required": approval_required,
+                        }
+                    ]),
                 )
         return self
 
@@ -939,6 +1131,20 @@ class Action:
             side_effect_level="exec",
             sandbox_required=True,
             expose_to_model=expose_to_model,
+            execution_environments=cast(list[ExecutionEnvironmentRequirement], [
+                {
+                    "requirement_id": f"python:{ action_id }",
+                    "kind": "python",
+                    "scope": "action_call",
+                    "resource_key": action_id,
+                    "config": {
+                        "preset_objects": preset_objects,
+                        "base_vars": base_vars,
+                        "allowed_return_types": allowed_return_types,
+                    },
+                    "policy": cast(ExecutionEnvironmentPolicy, default_policy or {}),
+                }
+            ]),
         )
         return self
 
@@ -975,6 +1181,21 @@ class Action:
             side_effect_level="exec",
             sandbox_required=True,
             expose_to_model=expose_to_model,
+            execution_environments=cast(list[ExecutionEnvironmentRequirement], [
+                {
+                    "requirement_id": f"bash:{ action_id }",
+                    "kind": "bash",
+                    "scope": "action_call",
+                    "resource_key": action_id,
+                    "config": {
+                        "allowed_cmd_prefixes": allowed_cmd_prefixes,
+                        "allowed_workdir_roots": allowed_workdir_roots,
+                        "timeout": timeout,
+                        "env": env,
+                    },
+                    "policy": cast(ExecutionEnvironmentPolicy, default_policy or {}),
+                }
+            ]),
         )
         return self
 
