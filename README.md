@@ -537,8 +537,8 @@ graph TB
         TCC["Custom Condition Handlers\nregister_condition_handler"]
     end
 
-    subgraph HOOKERS["Runtime Event Hookers"]
-        RH["ConsoleSink · StorageSink · ChannelSink · Custom\nattach to any runtime event stream"]
+    subgraph HOOKERS["Observation Event Hookers"]
+        RH["ConsoleSink · StorageSink · ChannelSink · Custom\nattach to any observation event stream"]
     end
 
     App --> AGENT_EXT
@@ -546,8 +546,8 @@ graph TB
     HOOKS --> CORE_PIPELINE
     CORE_PIPELINE --> ACTION_STACK
     App --> TF_EXT
-    CORE_PIPELINE -.->|"emit runtime events"| HOOKERS
-    ACTION_STACK -.->|"emit runtime events"| HOOKERS
+    CORE_PIPELINE -.->|"emit observation events"| HOOKERS
+    ACTION_STACK -.->|"emit observation events"| HOOKERS
 ```
 
 ### Extension Points at a Glance
@@ -564,7 +564,7 @@ graph TB
 | **ActionExecutor** (plugin) | Register alongside or replace builtins | Add a new execution backend: cloud functions, RPC, custom sandboxes |
 | **TriggerFlow chunks** | `@flow.chunk` / `register_chunk_handler` | Any Python function or coroutine becomes a composable flow step |
 | **TriggerFlow conditions** | `register_condition_handler` | Custom routing logic between branches |
-| **Runtime hookers** | Implement and register a hooker | Attach to the runtime event stream for observability, storage, or channel forwarding |
+| **Observation hookers** | Implement and register a hooker | Attach to the observation event stream for observability, storage, or channel forwarding |
 
 ### Example: Registering a Custom ActionExecutor
 

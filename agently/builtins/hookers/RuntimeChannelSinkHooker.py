@@ -17,12 +17,12 @@ from typing import TYPE_CHECKING
 from agently.types.plugins import EventHooker
 
 if TYPE_CHECKING:
-    from agently.types.data import RuntimeEvent
+    from agently.types.data import ObservationEvent
 
 class RuntimeChannelSinkHooker(EventHooker):
     name = "RuntimeChannelSinkHooker"
     event_types = None
-    _buffer: list["RuntimeEvent"] = []
+    _buffer: list["ObservationEvent"] = []
 
     @staticmethod
     def _on_register():
@@ -43,5 +43,5 @@ class RuntimeChannelSinkHooker(EventHooker):
         return buffered
 
     @staticmethod
-    async def handler(event: "RuntimeEvent"):
+    async def handler(event: "ObservationEvent"):
         RuntimeChannelSinkHooker._buffer.append(event.model_copy(deep=True))

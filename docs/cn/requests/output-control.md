@@ -142,7 +142,7 @@ def check(result, ctx):
 
 ## Retry 事件与可观测
 
-validate 引入两个新 runtime event：
+validate 引入两个新 observation event：
 
 - `model.validation_failed` —— handler 返回失败
 - `model.validation_error` —— handler 抛异常 / 返回不支持的值

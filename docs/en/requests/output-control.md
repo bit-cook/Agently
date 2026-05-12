@@ -142,7 +142,7 @@ This means: don't expect to swap validators per consumer. If you need different 
 
 ## Retry events and visibility
 
-Validation contributes two new runtime event types:
+Validation contributes two new observation event types:
 
 - `model.validation_failed` — handler returned a fail
 - `model.validation_error` — handler raised, returned an unsupported value, etc.

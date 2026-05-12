@@ -23,7 +23,7 @@ from agently.types.plugins import EventHooker
 from agently.utils import DataFormatter, Settings
 
 if TYPE_CHECKING:
-    from agently.types.data import RuntimeEvent
+    from agently.types.data import ObservationEvent
 
 
 RuntimeLogProfile: TypeAlias = Literal["off", "simple", "detail"]
@@ -111,7 +111,7 @@ def resolve_runtime_log_profile(settings: Settings, event_type: str | None) -> R
     return cast(RuntimeLogProfile, normalize_runtime_log_profile(settings.get(key, "off")))
 
 
-def is_simple_runtime_event(event: "RuntimeEvent") -> bool:
+def is_simple_runtime_event(event: "ObservationEvent") -> bool:
     family = resolve_runtime_event_family(event.event_type)
     if family not in _SIMPLE_EVENT_TYPES:
         return event.event_type in _RUNTIME_PRINT_EVENTS
@@ -121,7 +121,7 @@ def is_simple_runtime_event(event: "RuntimeEvent") -> bool:
     return event_type in _SIMPLE_EVENT_TYPES[family]
 
 
-def should_render_console_event(event: "RuntimeEvent", settings: Settings) -> bool:
+def should_render_console_event(event: "ObservationEvent", settings: Settings) -> bool:
     family = resolve_runtime_event_family(event.event_type)
     if family not in _CONSOLE_EVENT_FAMILIES:
         return False
@@ -133,7 +133,7 @@ def should_render_console_event(event: "RuntimeEvent", settings: Settings) -> bo
     return is_simple_runtime_event(event)
 
 
-def should_render_storage_event(event: "RuntimeEvent", settings: Settings) -> bool:
+def should_render_storage_event(event: "ObservationEvent", settings: Settings) -> bool:
     if event.event_type in _RUNTIME_PRINT_EVENTS:
         return True
 
@@ -190,13 +190,13 @@ def _stringify_payload(payload: Any, *, indent: int | None = None) -> str:
         return str(sanitized)
 
 
-def _payload_value(event: "RuntimeEvent", key: str, default: Any = None) -> Any:
+def _payload_value(event: "ObservationEvent", key: str, default: Any = None) -> Any:
     if isinstance(event.payload, dict):
         return event.payload.get(key, default)
     return default
 
 
-def _event_detail(event: "RuntimeEvent", *, pretty_payload: bool = False) -> str:
+def _event_detail(event: "ObservationEvent", *, pretty_payload: bool = False) -> str:
     if event.message:
         return event.message
     if event.error is not None:
@@ -204,7 +204,7 @@ def _event_detail(event: "RuntimeEvent", *, pretty_payload: bool = False) -> str
     return _stringify_payload(event.payload, indent=2 if pretty_payload else None)
 
 
-def _resolve_agent_name(event: "RuntimeEvent") -> str | None:
+def _resolve_agent_name(event: "ObservationEvent") -> str | None:
     agent_name = _payload_value(event, "agent_name")
     if isinstance(agent_name, str) and agent_name:
         return agent_name
@@ -214,7 +214,7 @@ def _resolve_agent_name(event: "RuntimeEvent") -> str | None:
     return str(meta_agent_name) if isinstance(meta_agent_name, str) and meta_agent_name else None
 
 
-def _resolve_response_id(event: "RuntimeEvent") -> str | None:
+def _resolve_response_id(event: "ObservationEvent") -> str | None:
     response_id = _payload_value(event, "response_id")
     if isinstance(response_id, str) and response_id:
         return response_id
@@ -223,7 +223,7 @@ def _resolve_response_id(event: "RuntimeEvent") -> str | None:
     return None
 
 
-def _resolve_execution_id(event: "RuntimeEvent") -> str | None:
+def _resolve_execution_id(event: "ObservationEvent") -> str | None:
     execution_id = event.meta.get("execution_id")
     if isinstance(execution_id, str) and execution_id:
         return execution_id
@@ -268,7 +268,7 @@ class RuntimeConsoleSinkHooker(EventHooker):
             RuntimeConsoleSinkHooker._streaming_key = None
 
     @staticmethod
-    def _handle_model_event(event: "RuntimeEvent", profile: "RuntimeLogProfile"):
+    def _handle_model_event(event: "ObservationEvent", profile: "RuntimeLogProfile"):
         agent_name = _resolve_agent_name(event) or event.source
         response_id = _resolve_response_id(event)
         response_label = f"[Agent-{ agent_name }]"
@@ -325,7 +325,7 @@ class RuntimeConsoleSinkHooker(EventHooker):
         _render_block(response_label, stage_mapping.get(event.event_type, event.event_type), detail, detail_color=detail_color)
 
     @staticmethod
-    def _handle_tool_event(event: "RuntimeEvent", profile: "RuntimeLogProfile"):
+    def _handle_tool_event(event: "ObservationEvent", profile: "RuntimeLogProfile"):
         RuntimeConsoleSinkHooker._close_stream_if_needed()
         tool_name = _payload_value(event, "tool_name", "unknown")
         agent_name = _resolve_agent_name(event)
@@ -341,7 +341,7 @@ class RuntimeConsoleSinkHooker(EventHooker):
         _render_block(header, stage, detail, detail_color=detail_color)
 
     @staticmethod
-    def _handle_trigger_flow_event(event: "RuntimeEvent", profile: "RuntimeLogProfile"):
+    def _handle_trigger_flow_event(event: "ObservationEvent", profile: "RuntimeLogProfile"):
         RuntimeConsoleSinkHooker._close_stream_if_needed()
         execution_id = _resolve_execution_id(event)
         prefix = "[TriggerFlow]"
@@ -351,7 +351,7 @@ class RuntimeConsoleSinkHooker(EventHooker):
         _render_line(prefix, detail, color="yellow" if event.level == "DEBUG" else "gray")
 
     @staticmethod
-    def _handle_generic_event(event: "RuntimeEvent"):
+    def _handle_generic_event(event: "ObservationEvent"):
         RuntimeConsoleSinkHooker._close_stream_if_needed()
         detail = _event_detail(event, pretty_payload=True)
         prefix = f"[{ event.source }] [{ event.event_type }]"
@@ -363,7 +363,7 @@ class RuntimeConsoleSinkHooker(EventHooker):
         _render_line(prefix, detail, color=color)
 
     @staticmethod
-    async def handler(event: "RuntimeEvent"):
+    async def handler(event: "ObservationEvent"):
         from agently.base import settings
         from agently.core.RuntimeContext import get_current_settings
 

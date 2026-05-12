@@ -112,13 +112,13 @@ Setting the stream timeout to `None` makes the consumer wait until the stream ac
 
 Big or live items belong in the runtime stream, not state. State is for the eventual close snapshot — it should be small and serializable. Streaming through `put_into_stream` lets the consumer process each item as it arrives without bloating the snapshot.
 
-## Runtime events are not this control-flow channel
+## Observation events are not this control-flow channel
 
-Agently also emits **runtime events** through the Event Center, for example TriggerFlow lifecycle events, Session application events, and observation logs. That is a framework-level observation channel, not `emit` / `when` control flow and not runtime stream data. See [Event Center](../observability/event-center.md).
+Agently also emits **observation events** through the Event Center, for example TriggerFlow lifecycle events, Session application events, and observation logs. That is a framework-level observation channel, not `emit` / `when` control flow and not runtime stream data. See [Event Center](../observability/event-center.md).
 
 ## See also
 
 - [Patterns](patterns.md) — `when` is one of several flow-control primitives
 - [Pause and Resume](pause-and-resume.md) — `continue_with(interrupt_id, payload)` is the resume path, separate from `emit`
 - [Lifecycle](lifecycle.md) — what `close()` does to the runtime stream
-- [Event Center](../observability/event-center.md) — framework-level runtime events
+- [Event Center](../observability/event-center.md) — framework-level observation events

@@ -17,7 +17,7 @@ This is a navigation aid: figure out which layer your problem lives at, then jum
 | 3. Response and memory | Can I reuse one response, or continue a bounded conversation? | [Model Response](../requests/model-response.md), [Session Memory](../requests/session-memory.md) |
 | 4. Actions and execution environments | Should the model call functions, MCP servers, or sandboxed commands with managed execution dependencies? | [Actions Overview](../actions/overview.md), [Action Runtime](../actions/action-runtime.md), [Execution Environment](../actions/execution-environment.md) |
 | 5. Knowledge and services | Do I need retrieval, HTTP, SSE, or WebSocket exposure? | [Knowledge Base](../knowledge/knowledge-base.md), [FastAPI Service Exposure](../services/fastapi.md) |
-| 6. Observability and development | Do I need runtime events, DevTools, or coding-agent guidance? | [Observability Overview](../observability/overview.md), [Coding Agents](../development/coding-agents.md) |
+| 6. Observability and development | Do I need observation events, DevTools, or coding-agent guidance? | [Observability Overview](../observability/overview.md), [Coding Agents](../development/coding-agents.md) |
 | 7. Orchestration | Branching, concurrency, pause/resume, persistence | [TriggerFlow Overview](../triggerflow/overview.md) |
 
 Each layer assumes the previous ones work. Skipping ahead is the most common reason something goes wrong — for example, jumping into TriggerFlow before a single request returns the right shape.
@@ -36,7 +36,7 @@ Each layer assumes the previous ones work. Skipping ahead is the most common rea
 | Need managed MCP/sandbox lifecycle before execution | [Execution Environment](../actions/execution-environment.md), usually for action/plugin authors |
 | Deciding where a new extension belongs | [Extension Boundaries](../architecture/extension-boundaries.md) |
 | Building a service over agents | [FastAPI Service Exposure](../services/fastapi.md) |
-| Need to inspect runtime events | [Event Center](../observability/event-center.md) → [DevTools](../observability/devtools.md) |
+| Need to inspect observation events | [Event Center](../observability/event-center.md) → [DevTools](../observability/devtools.md) |
 | Multi-stage workflow with branching | [TriggerFlow Overview](../triggerflow/overview.md) → [Patterns](../triggerflow/patterns.md) |
 | Long-running flow with human approval / interrupt | [Pause and Resume](../triggerflow/pause-and-resume.md) |
 | Need to save and resume execution across restarts | [Persistence and Blueprint](../triggerflow/persistence-and-blueprint.md) |
@@ -49,4 +49,4 @@ Each layer assumes the previous ones work. Skipping ahead is the most common rea
 - "Action or tool API?" — New code: `Agently.action` / `agent.use_actions(...)`, plus scenario helpers such as `agent.enable_python(...)`, `agent.enable_shell(...)`, and `agent.enable_workspace(...)`. Existing `tool_func` / `use_tools` / `use_mcp` / `use_sandbox` keep working but are positioned as a compatibility surface; see [Action Runtime](../actions/action-runtime.md).
 - "Executor or Execution Environment?" — Executors run one call. Execution Environment prepares reusable or policy-bound dependencies before that call; see [Execution Environment](../actions/execution-environment.md).
 - "Core API or syntax sugar?" — App developers should start with built-in actions and Agent Component helpers. Core managers and providers are for framework, action, and plugin developers; see [Extension Boundaries](../architecture/extension-boundaries.md).
-- "Runtime event or TriggerFlow event?" — Runtime events belong to [Event Center](../observability/event-center.md). `emit` / `when` and runtime stream belong to [TriggerFlow Events and Streams](../triggerflow/events-and-streams.md).
+- "Observation event or TriggerFlow event?" — Observation events belong to [Event Center](../observability/event-center.md). `emit` / `when` and runtime stream belong to [TriggerFlow Events and Streams](../triggerflow/events-and-streams.md).
