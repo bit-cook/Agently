@@ -106,6 +106,55 @@ restored.load_blueprint(blueprint)
 
 关键约束：blueprint 用到的 chunk 必须在恢复端**按相同 handler 名注册**。没 `register_chunk_handler(...)` loader 无法把名映回函数，load 失败。
 
+## 服务化推荐封装
+
+服务代码优先使用这种封装形态：
+
+1. chunks 和 conditions 写成模块顶层 named functions。
+2. flow 构建集中在一个很小的 builder/factory 函数里。
+3. 稳定 live 依赖用 `flow.update_runtime_resources(...)` 注入。
+4. 请求级或租户级依赖用每次 execution 的 `runtime_resources={...}` 注入。
+5. 单次请求的业务中间值放 execution `state`，不要放 `flow_data`。
+
+```python
+async def analyze(data):
+    agent_factory = data.require_resource("agent_factory")
+    prompts_path = data.require_resource("prompts_path")
+    question = data.input
+    data.set_state("question", question)
+    agent = agent_factory()
+    return agent.load_yaml_prompt(
+        prompts_path,
+        prompt_key_path="analyze",
+        mappings={"question": question},
+    ).start()
+
+
+async def answer(data):
+    policy_doc = data.require_resource("policy_doc")
+    question = data.get_state("question")
+    return f"{policy_doc}\n\nQ: {question}"
+
+
+def build_policy_flow() -> TriggerFlow:
+    flow = TriggerFlow(name="policy")
+    flow.update_runtime_resources(
+        agent_factory=make_agent,
+        prompts_path=PROMPTS_DIR / "policy.yaml",
+    )
+    flow.to(analyze).to(answer)
+    return flow
+
+
+flow = build_policy_flow()
+snapshot = flow.start(
+    "travel subsidy?",
+    runtime_resources={"policy_doc": tenant_policy_doc},
+)
+```
+
+这种写法让业务模块尽量轻，同时保留 config / blueprint 兼容性。闭包适合短脚本，但服务化推荐模块顶层 named handlers：更容易测试、注册、导出和重载。
+
 ### 何时用 blueprint
 
 - 用 YAML / JSON 配置声明式作 flow 并在启动时 load。

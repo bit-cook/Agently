@@ -144,3 +144,150 @@ async def test_custom_action_executor_signature_still_works():
     result_data = cast(dict[str, Any], result.get("data"))
     assert result_data["spec"] == action_id
     assert result_data["input"] == {"value": 7}
+
+
+@pytest.mark.asyncio
+async def test_execution_environment_release_scope_cleans_handles():
+    manager = _create_manager()
+    owner = "scope-test-owner"
+
+    await manager.async_ensure(
+        {"kind": "python", "scope": "agent", "owner_id": owner, "resource_key": "py1"},
+    )
+    await manager.async_ensure(
+        {"kind": "python", "scope": "session", "owner_id": owner, "resource_key": "py2"},
+    )
+    await manager.async_ensure(
+        {"kind": "python", "scope": "agent", "owner_id": "other-owner", "resource_key": "py3"},
+    )
+
+    assert len(manager.list(scope="agent", owner_id=owner)) == 1
+    assert len(manager.list(scope="session", owner_id=owner)) == 1
+
+    await manager.async_release_scope("agent", owner)
+
+    assert manager.list(scope="agent", owner_id=owner) == []
+    assert len(manager.list(scope="session", owner_id=owner)) == 1
+    assert len(manager.list(scope="agent", owner_id="other-owner")) == 1
+
+    await manager.async_release_scope("session", owner)
+    assert manager.list(scope="session", owner_id=owner) == []
+
+
+@pytest.mark.asyncio
+async def test_execution_environment_missing_provider_raises_stable_error():
+    manager = _create_manager()
+
+    with pytest.raises(Exception) as exc_info:
+        await manager.async_ensure(
+            {"kind": "nonexistent_provider_xyz", "scope": "action_call", "resource_key": "nope"},
+        )
+
+    error = exc_info.value
+    assert hasattr(error, "code")
+    assert error.code == "execution_environment.provider_missing"
+    assert manager.list() == []
+
+
+@pytest.mark.asyncio
+async def test_execution_environment_approval_denied_returns_blocked_action_result():
+    action_id = "denied_approval_env_action"
+    Agently.action.register_python_sandbox_action(action_id=action_id, expose_to_model=False)
+    spec = Agently.action.action_registry.get_spec(action_id)
+    assert spec is not None
+    spec.get("execution_environments", [])[0]["approval_required"] = True
+
+    Agently.execution_environment.set_decision_handler(lambda req, pol: False)
+    try:
+        result = Agently.action.execute_action(action_id, {"python_code": "result = 1"})
+    finally:
+        Agently.execution_environment.set_decision_handler(None)
+
+    assert result.get("status") == "blocked"
+    assert Agently.execution_environment.list() == []
+
+
+@pytest.mark.asyncio
+async def test_execution_environment_provider_failure_does_not_poison_registry():
+    from agently.core.ExecutionEnvironment import ExecutionEnvironmentManager
+    from agently.utils import Settings
+
+    settings = Settings(name="FailProviderTestSettings", parent=Agently.settings)
+    manager = ExecutionEnvironmentManager(
+        plugin_manager=Agently.plugin_manager,
+        settings=settings,
+        event_center=Agently.event_center,
+    )
+
+    class FailingProvider:
+        kind = "python"
+
+        async def async_ensure(self, *, requirement, policy, existing_handle=None):
+            raise RuntimeError("Simulated provider failure")
+
+        async def async_health_check(self, handle):
+            return "unhealthy"
+
+        async def async_release(self, handle):
+            pass
+
+    manager.register_provider(FailingProvider())
+
+    declared = manager.declare(
+        {"kind": "python", "scope": "action_call", "resource_key": "fail_test"}
+    )
+    requirement_id = declared["requirement_id"]
+
+    with pytest.raises(RuntimeError, match="Simulated provider failure"):
+        await manager.async_ensure({"kind": "python", "scope": "action_call", "resource_key": "fail_test"})
+
+    assert manager.list() == []
+    assert manager.inspect(requirement_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_mcp_executor_transport_routing():
+    import unittest.mock as mock
+    from agently.builtins.plugins.ActionExecutor.MCPActionExecutor import MCPActionExecutor
+
+    direct_transport = object()
+    managed_transport = object()
+    executor = MCPActionExecutor(action_id="my_tool", transport=direct_transport)
+
+    captured: list[Any] = []
+
+    def fake_client(transport):
+        captured.append(transport)
+        ctx = mock.MagicMock()
+        ctx.__aenter__ = mock.AsyncMock(side_effect=Exception("stop"))
+        ctx.__aexit__ = mock.AsyncMock(return_value=False)
+        return ctx
+
+    spec = {"action_id": "my_tool"}
+    policy: dict[str, Any] = {}
+    settings = mock.MagicMock()
+
+    with mock.patch("fastmcp.Client", fake_client):
+        action_call_no_env: dict[str, Any] = {
+            "action_input": {},
+            "execution_environment_resources": {},
+        }
+        try:
+            await executor.execute(spec=spec, action_call=action_call_no_env, policy=policy, settings=settings)
+        except Exception:
+            pass
+        assert captured and captured[-1] is direct_transport, \
+            "Without managed resource, executor must use direct transport"
+
+        captured.clear()
+
+        action_call_with_env: dict[str, Any] = {
+            "action_input": {},
+            "execution_environment_resources": {"my_tool": managed_transport},
+        }
+        try:
+            await executor.execute(spec=spec, action_call=action_call_with_env, policy=policy, settings=settings)
+        except Exception:
+            pass
+        assert captured and captured[-1] is managed_transport, \
+            "With managed resource injected, executor must prefer managed transport"
