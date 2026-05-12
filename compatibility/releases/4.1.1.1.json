@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
   "framework": "agently",
-  "target_version": "4.1.1.2",
-  "release_train": "2026-05-runtime-env-v1-patch1",
-  "notes": "Current public development-line manifest for the next Agently release before publication.",
+  "framework_version": "4.1.1.1",
+  "release_train": "2026-05-runtime-env-v1",
+  "released_at": "2026-05-12",
+  "notes": "Version-scoped companion compatibility manifest for the Agently 4.1.1.1 release. Introduces ExecutionEnvironmentManager (MCP/Bash/Python providers), Action lifecycle integration, TriggerFlow execution environment injection, and L3 agent helpers (enable_python/enable_shell/enable_workspace).",
   "companions": {
     "devtools": {
       "companion_package": "agently-devtools",
@@ -14,7 +15,7 @@
       "repository": "Agently-Skills",
       "authoring_protocol": "agently-skills.authoring.v1",
       "devtools_guidance_protocol": "agently-skills.devtools-guidance.v1",
-      "recommended_ref": "main"
+      "recommended_ref": "release/4.1.1.1"
     },
     "docs": {
       "repository": "docs",
