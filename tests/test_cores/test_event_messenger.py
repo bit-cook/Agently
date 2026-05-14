@@ -7,6 +7,10 @@ import pytest
 from agently import Agently
 from agently.builtins.hookers.RuntimeConsoleSinkHooker import (
     RuntimeConsoleSinkHooker,
+    _resolve_action_stage,
+    _resolve_tool_stage,
+    _resolve_tool_name,
+    resolve_runtime_log_profile,
     should_render_console_event,
     should_render_storage_event,
 )
@@ -22,6 +26,7 @@ if TYPE_CHECKING:
 _RUNTIME_LOG_KEYS = (
     "debug",
     "runtime.show_model_logs",
+    "runtime.show_action_logs",
     "runtime.show_tool_logs",
     "runtime.show_trigger_flow_logs",
     "runtime.show_runtime_logs",
@@ -193,6 +198,29 @@ async def test_event_center_matches_triggerflow_aliases_for_legacy_subscriptions
 
 
 @pytest.mark.asyncio
+async def test_event_center_keeps_action_and_tool_loop_filters_exact():
+    ec = EventCenter()
+    action_captured: list["ObservationEvent"] = []
+    tool_captured: list["ObservationEvent"] = []
+
+    async def capture_action(event: "ObservationEvent"):
+        action_captured.append(event)
+
+    async def capture_tool(event: "ObservationEvent"):
+        tool_captured.append(event)
+
+    ec.register_hook(capture_action, event_types="action.loop_started", hook_name="capture_action")
+    ec.register_hook(capture_tool, event_types="tool.loop_started", hook_name="capture_tool")
+    emitter = ec.create_emitter("ActionFlowTest")
+
+    await emitter.async_emit("action.loop_started", message="started")
+    await emitter.async_emit("tool.loop_started", message="legacy started")
+
+    assert [event.event_type for event in action_captured] == ["action.loop_started"]
+    assert [event.event_type for event in tool_captured] == ["tool.loop_started"]
+
+
+@pytest.mark.asyncio
 async def test_event_center_normalizes_cancelled_error():
     ec = EventCenter()
     captured: list["ObservationEvent"] = []
@@ -221,6 +249,8 @@ def test_runtime_log_profiles_keep_default_off_quiet():
     assert not should_render_console_event(RuntimeEvent(event_type="model.requesting"), settings)
     assert not should_render_console_event(RuntimeEvent(event_type="tool.loop_started"), settings)
     assert not should_render_console_event(RuntimeEvent(event_type="triggerflow.execution_started"), settings)
+    assert not should_render_console_event(RuntimeEvent(event_type="request.completed"), settings)
+    assert not should_render_console_event(RuntimeEvent(event_type="runtime.print", level="INFO", message="hello"), settings)
 
     assert not should_render_storage_event(RuntimeEvent(event_type="model.requesting", level="INFO"), settings)
     assert not should_render_storage_event(RuntimeEvent(event_type="request.completed", level="INFO"), settings)
@@ -234,17 +264,48 @@ def test_runtime_log_profiles_simple_mode_uses_summary_whitelists():
 
     assert should_render_console_event(RuntimeEvent(event_type="model.requesting", message="requesting"), settings)
     assert not should_render_console_event(RuntimeEvent(event_type="model.streaming", message="delta"), settings)
+    assert should_render_console_event(RuntimeEvent(event_type="model.request_failed", level="ERROR"), settings)
+    assert should_render_console_event(RuntimeEvent(event_type="model.validation_failed", level="WARNING"), settings)
+    assert should_render_console_event(RuntimeEvent(event_type="action.loop_started", message="started"), settings)
+    assert not should_render_console_event(RuntimeEvent(event_type="action.plan_ready", message="ready"), settings)
+    assert should_render_console_event(
+        RuntimeEvent(event_type="action.started", payload={"action_type": "tool", "action_name": "get_weather"}),
+        settings,
+    )
+    assert should_render_console_event(RuntimeEvent(event_type="action.completed", level="INFO"), settings)
+    assert should_render_console_event(RuntimeEvent(event_type="action.failed", level="WARNING"), settings)
     assert should_render_console_event(RuntimeEvent(event_type="tool.loop_started", message="started"), settings)
     assert not should_render_console_event(RuntimeEvent(event_type="tool.plan_ready", message="ready"), settings)
+    assert not should_render_console_event(
+        RuntimeEvent(
+            event_type="tool.loop_started",
+            message="compat started",
+            meta={"compat_event_alias": True, "compat_alias_for": "action.loop_started"},
+        ),
+        settings,
+    )
     assert should_render_console_event(
         RuntimeEvent(event_type="triggerflow.execution_started", message="execution started"),
         settings,
     )
+    assert should_render_console_event(RuntimeEvent(event_type="triggerflow.execution_failed", level="ERROR"), settings)
     assert not should_render_console_event(RuntimeEvent(event_type="triggerflow.signal", message="signal"), settings)
+    assert should_render_console_event(RuntimeEvent(event_type="runtime.print", level="INFO", message="hello"), settings)
+    assert not should_render_console_event(RuntimeEvent(event_type="request.completed", level="INFO"), settings)
+    assert should_render_console_event(RuntimeEvent(event_type="request.failed", level="ERROR"), settings)
 
     assert not should_render_storage_event(RuntimeEvent(event_type="model.requesting", level="INFO"), settings)
     assert not should_render_storage_event(RuntimeEvent(event_type="request.completed", level="INFO"), settings)
-    assert should_render_storage_event(RuntimeEvent(event_type="request.failed", level="ERROR"), settings)
+    assert not should_render_storage_event(RuntimeEvent(event_type="request.failed", level="ERROR"), settings)
+    assert not should_render_storage_event(RuntimeEvent(event_type="runtime.print", level="INFO", message="hello"), settings)
+    assert not should_render_storage_event(
+        RuntimeEvent(
+            event_type="tool.loop_failed",
+            level="ERROR",
+            meta={"compat_event_alias": True, "compat_alias_for": "action.loop_failed"},
+        ),
+        settings,
+    )
 
 
 def test_runtime_log_profiles_detail_mode_allows_full_runtime_detail():
@@ -253,9 +314,152 @@ def test_runtime_log_profiles_detail_mode_allows_full_runtime_detail():
     assert should_render_console_event(RuntimeEvent(event_type="model.streaming", message="delta"), settings)
     assert should_render_console_event(RuntimeEvent(event_type="tool.plan_ready", message="ready"), settings)
     assert should_render_console_event(RuntimeEvent(event_type="triggerflow.signal", message="signal"), settings)
+    assert should_render_console_event(RuntimeEvent(event_type="request.completed", level="INFO"), settings)
+    assert should_render_console_event(RuntimeEvent(event_type="session.applied_to_request", level="INFO"), settings)
+    assert should_render_console_event(RuntimeEvent(event_type="action.completed", level="INFO"), settings)
 
     assert not should_render_storage_event(RuntimeEvent(event_type="model.completed", level="INFO"), settings)
-    assert should_render_storage_event(RuntimeEvent(event_type="request.completed", level="INFO"), settings)
+    assert not should_render_storage_event(RuntimeEvent(event_type="request.completed", level="INFO"), settings)
+
+
+def test_action_logs_prefer_action_setting_and_fall_back_to_tool_setting():
+    legacy_settings = Settings({"runtime": {"show_tool_logs": "simple"}})
+    assert resolve_runtime_log_profile(legacy_settings, "action.started") == "simple"
+    assert should_render_console_event(RuntimeEvent(event_type="action.started"), legacy_settings)
+
+    preferred_settings = Settings({"runtime": {"show_action_logs": "off", "show_tool_logs": "detail"}})
+    assert resolve_runtime_log_profile(preferred_settings, "action.started") == "off"
+    assert not should_render_console_event(RuntimeEvent(event_type="action.started"), preferred_settings)
+
+    parent_settings = Settings({"runtime": {"show_action_logs": "detail"}})
+    child_settings = Settings({"runtime": {"show_tool_logs": "off"}}, parent=parent_settings)
+    assert resolve_runtime_log_profile(child_settings, "action.started") == "off"
+
+
+def test_tool_console_stage_uses_event_type_before_success_payload():
+    assert _resolve_tool_stage(RuntimeEvent(event_type="tool.loop_started")) == "Started"
+    assert _resolve_tool_stage(RuntimeEvent(event_type="tool.loop_completed")) == "Completed"
+    assert _resolve_tool_stage(RuntimeEvent(event_type="tool.loop_failed", level="ERROR")) == "Failed"
+    assert _resolve_tool_stage(RuntimeEvent(event_type="tool.plan_ready")) == "Plan Ready"
+    assert _resolve_tool_stage(RuntimeEvent(event_type="custom.completed", payload={"success": True})) == "Completed"
+    assert _resolve_tool_stage(RuntimeEvent(event_type="custom.failed", payload={"success": False})) == "Failed"
+
+
+def test_action_console_stage_uses_action_loop_event_types():
+    assert _resolve_action_stage(RuntimeEvent(event_type="action.loop_started")) == "Started"
+    assert _resolve_action_stage(RuntimeEvent(event_type="action.plan_ready")) == "Plan Ready"
+    assert _resolve_action_stage(RuntimeEvent(event_type="action.loop_completed")) == "Completed"
+    assert _resolve_action_stage(RuntimeEvent(event_type="action.loop_failed", level="ERROR")) == "Failed"
+
+
+def test_tool_console_name_uses_action_payload_and_record():
+    assert _resolve_tool_name(RuntimeEvent(event_type="tool.loop_started")) is None
+    assert (
+        _resolve_tool_name(RuntimeEvent(event_type="action.started", payload={"action_name": "get_weather"}))
+        == "get_weather"
+    )
+    assert (
+        _resolve_tool_name(
+            RuntimeEvent(event_type="action.completed", payload={"record": {"tool_name": "search_docs"}})
+        )
+        == "search_docs"
+    )
+
+
+def test_tool_console_rendering_does_not_mark_loop_start_as_failed(monkeypatch):
+    printed: list[str] = []
+
+    def capture_print(*args, **kwargs):
+        _ = kwargs
+        printed.append(" ".join(str(arg) for arg in args))
+
+    monkeypatch.setattr("builtins.print", capture_print)
+
+    RuntimeConsoleSinkHooker._handle_tool_event(  # type: ignore[attr-defined]
+        RuntimeEvent(event_type="tool.loop_started", message="Tool loop started."),
+        "simple",
+    )
+    RuntimeConsoleSinkHooker._handle_tool_event(  # type: ignore[attr-defined]
+        RuntimeEvent(event_type="tool.loop_completed", message="Tool loop completed."),
+        "simple",
+    )
+
+    rendered = "\n".join(printed)
+    assert "Started" in rendered
+    assert "Completed" in rendered
+    assert "ToolLoop" in rendered
+    assert "Tool-unknown" not in rendered
+    assert "Failed" not in rendered
+
+
+def test_action_console_rendering_shows_action_name_and_type(monkeypatch):
+    printed: list[str] = []
+
+    def capture_print(*args, **kwargs):
+        _ = kwargs
+        printed.append(" ".join(str(arg) for arg in args))
+
+    monkeypatch.setattr("builtins.print", capture_print)
+
+    RuntimeConsoleSinkHooker._handle_action_event(  # type: ignore[attr-defined]
+        RuntimeEvent(
+            event_type="action.completed",
+            message="Action 'get_weather' completed.",
+            payload={"action_type": "tool", "action_name": "get_weather"},
+        ),
+        "simple",
+    )
+
+    rendered = "\n".join(printed)
+    assert "Action-get_weather" in rendered
+    assert "type=tool" in rendered
+    assert "Completed" in rendered
+    assert "Action-unknown" not in rendered
+
+
+def test_action_console_rendering_shows_loop_without_unknown_action(monkeypatch):
+    printed: list[str] = []
+
+    def capture_print(*args, **kwargs):
+        _ = kwargs
+        printed.append(" ".join(str(arg) for arg in args))
+
+    monkeypatch.setattr("builtins.print", capture_print)
+
+    RuntimeConsoleSinkHooker._handle_action_event(  # type: ignore[attr-defined]
+        RuntimeEvent(event_type="action.loop_started", message="Action loop started."),
+        "simple",
+    )
+
+    rendered = "\n".join(printed)
+    assert "ActionLoop" in rendered
+    assert "Started" in rendered
+    assert "Action-unknown" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_runtime_console_sink_renders_generic_runtime_events(monkeypatch):
+    printed: list[str] = []
+    settings = _build_runtime_log_settings("detail")
+
+    def capture_print(*args, **kwargs):
+        _ = kwargs
+        printed.append(" ".join(str(arg) for arg in args))
+
+    monkeypatch.setattr("builtins.print", capture_print)
+
+    with bind_runtime_context(settings=settings):
+        await RuntimeConsoleSinkHooker.handler(
+            RuntimeEvent(
+                event_type="request.completed",
+                source="ModelResponse",
+                message="Request completed.",
+            )
+        )
+
+    rendered = "\n".join(printed)
+    assert "[ModelResponse] [request.completed]" in rendered
+    assert "Request completed." in rendered
 
 
 @pytest.mark.asyncio

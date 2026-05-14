@@ -119,6 +119,7 @@ settings.update_mappings(
             "debug": {
                 "simple": {
                     "runtime.show_model_logs": "simple",
+                    "runtime.show_action_logs": "simple",
                     "runtime.show_tool_logs": "simple",
                     "runtime.show_trigger_flow_logs": "simple",
                     "runtime.show_runtime_logs": "simple",
@@ -126,6 +127,7 @@ settings.update_mappings(
                 },
                 "detail": {
                     "runtime.show_model_logs": "detail",
+                    "runtime.show_action_logs": "detail",
                     "runtime.show_tool_logs": "detail",
                     "runtime.show_trigger_flow_logs": "detail",
                     "runtime.show_runtime_logs": "detail",
@@ -133,6 +135,7 @@ settings.update_mappings(
                 },
                 "off": {
                     "runtime.show_model_logs": "off",
+                    "runtime.show_action_logs": "off",
                     "runtime.show_tool_logs": "off",
                     "runtime.show_trigger_flow_logs": "off",
                     "runtime.show_runtime_logs": "off",
@@ -140,6 +143,7 @@ settings.update_mappings(
                 },
                 True: {
                     "runtime.show_model_logs": "simple",
+                    "runtime.show_action_logs": "simple",
                     "runtime.show_tool_logs": "simple",
                     "runtime.show_trigger_flow_logs": "simple",
                     "runtime.show_runtime_logs": "simple",
@@ -147,6 +151,7 @@ settings.update_mappings(
                 },
                 False: {
                     "runtime.show_model_logs": "off",
+                    "runtime.show_action_logs": "off",
                     "runtime.show_tool_logs": "off",
                     "runtime.show_trigger_flow_logs": "off",
                     "runtime.show_runtime_logs": "off",

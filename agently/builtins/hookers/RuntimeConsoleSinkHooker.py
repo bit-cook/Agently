@@ -31,21 +31,31 @@ RuntimeLogProfile: TypeAlias = Literal["off", "simple", "detail"]
 
 _VALID_RUNTIME_LOG_PROFILES = frozenset({"off", "simple", "detail"})
 _ALWAYS_VISIBLE_LEVELS = frozenset({"WARNING", "ERROR", "CRITICAL"})
-_CONSOLE_EVENT_FAMILIES = frozenset({"model", "tool", "triggerflow"})
+_CONSOLE_EVENT_FAMILIES = frozenset({"model", "action", "triggerflow", "runtime"})
 _RUNTIME_PRINT_EVENTS = frozenset({"runtime.print"})
 _SIMPLE_EVENT_TYPES = {
     "model": frozenset(
         {
             "model.requesting",
             "model.completed",
+            "model.failed",
             "model.parse_failed",
+            "model.request_failed",
             "model.retrying",
             "model.requester.error",
             "model.streaming_canceled",
+            "model.validation_error",
+            "model.validation_failed",
         }
     ),
-    "tool": frozenset(
+    "action": frozenset(
         {
+            "action.loop_started",
+            "action.loop_completed",
+            "action.loop_failed",
+            "action.started",
+            "action.completed",
+            "action.failed",
             "tool.loop_started",
             "tool.loop_completed",
             "tool.loop_failed",
@@ -60,10 +70,15 @@ _SIMPLE_EVENT_TYPES = {
             "triggerflow.interrupt_raised",
         }
     ),
+    "runtime": frozenset(
+        {
+            "runtime.print",
+        }
+    ),
 }
 _FAMILY_SETTINGS_KEYS = {
     "model": "runtime.show_model_logs",
-    "tool": "runtime.show_tool_logs",
+    "action": "runtime.show_action_logs",
     "triggerflow": "runtime.show_trigger_flow_logs",
     "runtime": "runtime.show_runtime_logs",
 }
@@ -98,17 +113,48 @@ def resolve_runtime_event_family(event_type: str | None) -> str:
     if isinstance(event_type, str):
         if event_type.startswith("model."):
             return "model"
-        if event_type.startswith("tool."):
-            return "tool"
+        if event_type.startswith(("action.", "tool.")):
+            return "action"
         if any(alias.startswith("triggerflow.") for alias in get_triggerflow_event_aliases(event_type)):
             return "triggerflow"
     return "runtime"
 
 
+def _payload_value(event: "ObservationEvent", key: str, default: Any = None) -> Any:
+    if isinstance(event.payload, dict):
+        return event.payload.get(key, default)
+    return default
+
+
+def _settings_layer_value(settings: Settings, key: str) -> Any:
+    value = settings.get(key, None, inherit=False)
+    if value is not None:
+        return value
+    parent = getattr(settings, "parent", None)
+    if parent is not None:
+        return _settings_layer_value(parent, key)
+    return None
+
+
+def _resolve_action_log_setting(settings: Settings) -> Any:
+    current: Settings | None = settings
+    while current is not None:
+        action_value = current.get("runtime.show_action_logs", None, inherit=False)
+        if action_value is not None:
+            return action_value
+        tool_value = current.get("runtime.show_tool_logs", None, inherit=False)
+        if tool_value is not None:
+            return tool_value
+        current = getattr(current, "parent", None)
+    return "off"
+
+
 def resolve_runtime_log_profile(settings: Settings, event_type: str | None) -> RuntimeLogProfile:
     family = resolve_runtime_event_family(event_type)
+    if family == "action":
+        return cast(RuntimeLogProfile, normalize_runtime_log_profile(_resolve_action_log_setting(settings)))
     key = _FAMILY_SETTINGS_KEYS[family]
-    return cast(RuntimeLogProfile, normalize_runtime_log_profile(settings.get(key, "off")))
+    return cast(RuntimeLogProfile, normalize_runtime_log_profile(_settings_layer_value(settings, key)))
 
 
 def is_simple_runtime_event(event: "ObservationEvent") -> bool:
@@ -122,6 +168,8 @@ def is_simple_runtime_event(event: "ObservationEvent") -> bool:
 
 
 def should_render_console_event(event: "ObservationEvent", settings: Settings) -> bool:
+    if _is_compat_alias_event(event) and resolve_runtime_log_profile(settings, event.meta.get("compat_alias_for")) != "off":
+        return False
     family = resolve_runtime_event_family(event.event_type)
     if family not in _CONSOLE_EVENT_FAMILIES:
         return False
@@ -130,12 +178,16 @@ def should_render_console_event(event: "ObservationEvent", settings: Settings) -
         return False
     if profile == "detail":
         return True
+    if event.level in _ALWAYS_VISIBLE_LEVELS:
+        return True
     return is_simple_runtime_event(event)
 
 
 def should_render_storage_event(event: "ObservationEvent", settings: Settings) -> bool:
+    if _is_compat_alias_event(event):
+        return False
     if event.event_type in _RUNTIME_PRINT_EVENTS:
-        return True
+        return resolve_runtime_log_profile(settings, event.event_type) == "off"
 
     family = resolve_runtime_event_family(event.event_type)
     profile = resolve_runtime_log_profile(settings, event.event_type)
@@ -190,12 +242,6 @@ def _stringify_payload(payload: Any, *, indent: int | None = None) -> str:
         return str(sanitized)
 
 
-def _payload_value(event: "ObservationEvent", key: str, default: Any = None) -> Any:
-    if isinstance(event.payload, dict):
-        return event.payload.get(key, default)
-    return default
-
-
 def _event_detail(event: "ObservationEvent", *, pretty_payload: bool = False) -> str:
     if event.message:
         return event.message
@@ -230,6 +276,114 @@ def _resolve_execution_id(event: "ObservationEvent") -> str | None:
     if event.run is not None and event.run.execution_id:
         return event.run.execution_id
     return None
+
+
+def _resolve_tool_stage(event: "ObservationEvent") -> str:
+    stage_mapping = {
+        "tool.loop_started": "Started",
+        "tool.loop_completed": "Completed",
+        "tool.loop_failed": "Failed",
+        "tool.plan_ready": "Plan Ready",
+    }
+    if event.event_type in stage_mapping:
+        return stage_mapping[event.event_type]
+    success = _payload_value(event, "success", None)
+    if isinstance(success, bool):
+        return "Completed" if success else "Failed"
+    if event.level in ("ERROR", "CRITICAL"):
+        return "Failed"
+    if event.level == "WARNING":
+        return "Warning"
+    return "Info"
+
+
+def _is_compat_alias_event(event: "ObservationEvent") -> bool:
+    return event.meta.get("compat_event_alias") is True
+
+
+def _is_tool_loop_event(event: "ObservationEvent") -> bool:
+    return event.event_type in {"tool.loop_started", "tool.loop_completed", "tool.loop_failed", "tool.plan_ready"}
+
+
+def _is_action_loop_event(event: "ObservationEvent") -> bool:
+    return event.event_type in {"action.loop_started", "action.loop_completed", "action.loop_failed", "action.plan_ready"}
+
+
+def _resolve_tool_name(event: "ObservationEvent") -> str | None:
+    for key in ("tool_name", "action_name"):
+        value = _payload_value(event, key)
+        if isinstance(value, str) and value:
+            return value
+
+    record = _payload_value(event, "record")
+    if isinstance(record, dict):
+        for key in ("tool_name", "action_name", "action_id"):
+            value = record.get(key)
+            if isinstance(value, str) and value:
+                return value
+
+    command = _payload_value(event, "command")
+    if isinstance(command, dict):
+        for key in ("tool_name", "action_name", "action_id"):
+            value = command.get(key)
+            if isinstance(value, str) and value:
+                return value
+
+    if event.run is not None:
+        value = event.run.meta.get("action_name")
+        if isinstance(value, str) and value:
+            return value
+
+    return None
+
+
+def _resolve_action_name(event: "ObservationEvent") -> str:
+    action_name = _payload_value(event, "action_name")
+    if isinstance(action_name, str) and action_name:
+        return action_name
+    record = _payload_value(event, "record")
+    if isinstance(record, dict):
+        for key in ("action_name", "action_id", "tool_name"):
+            value = record.get(key)
+            if isinstance(value, str) and value:
+                return value
+    command = _payload_value(event, "command")
+    if isinstance(command, dict):
+        for key in ("action_name", "action_id", "tool_name"):
+            value = command.get(key)
+            if isinstance(value, str) and value:
+                return value
+    if event.run is not None:
+        action_name = event.run.meta.get("action_name")
+        if isinstance(action_name, str) and action_name:
+            return action_name
+    return "unknown"
+
+
+def _resolve_action_type(event: "ObservationEvent") -> str | None:
+    action_type = _payload_value(event, "action_type")
+    if isinstance(action_type, str) and action_type:
+        return action_type
+    if event.run is not None:
+        action_type = event.run.meta.get("action_type")
+        if isinstance(action_type, str) and action_type:
+            return action_type
+    return None
+
+
+def _resolve_action_stage(event: "ObservationEvent") -> str:
+    stage_mapping = {
+        "action.loop_started": "Started",
+        "action.loop_completed": "Completed",
+        "action.loop_failed": "Failed",
+        "action.plan_ready": "Plan Ready",
+        "action.started": "Started",
+        "action.completed": "Completed",
+        "action.failed": "Failed",
+    }
+    if event.event_type in stage_mapping:
+        return stage_mapping[event.event_type]
+    return _resolve_tool_stage(event)
 
 
 def _render_block(header: str, stage: str, detail: str, *, detail_color: str = "gray", end: str = "\n"):
@@ -293,10 +447,14 @@ class RuntimeConsoleSinkHooker(EventHooker):
         stage_mapping = {
             "model.requesting": "Requesting",
             "model.completed": "Done",
+            "model.failed": "Failed",
             "model.parse_failed": "Parse Failed",
+            "model.request_failed": "Request Failed",
             "model.retrying": "Retrying",
             "model.streaming_canceled": "Streaming Canceled",
             "model.requester.error": "Requester Error",
+            "model.validation_error": "Validation Error",
+            "model.validation_failed": "Validation Failed",
         }
         detail = event.message or ""
         if profile == "simple":
@@ -327,17 +485,36 @@ class RuntimeConsoleSinkHooker(EventHooker):
     @staticmethod
     def _handle_tool_event(event: "ObservationEvent", profile: "RuntimeLogProfile"):
         RuntimeConsoleSinkHooker._close_stream_if_needed()
-        tool_name = _payload_value(event, "tool_name", "unknown")
         agent_name = _resolve_agent_name(event)
-        header = f"[Tool-{ tool_name }]"
+        tool_name = _resolve_tool_name(event)
+        header = "[ToolLoop]" if _is_tool_loop_event(event) else f"[Tool-{ tool_name or 'unknown' }]"
         if agent_name:
             header = f"[Agent-{ agent_name }] - { header }"
-        stage = "Completed" if _payload_value(event, "success", False) else "Failed"
+        stage = _resolve_tool_stage(event)
         if profile == "simple":
             detail = event.message or stage
         else:
             detail = _stringify_payload(event.payload, indent=2) or _event_detail(event, pretty_payload=True)
-        detail_color = "gray" if stage == "Completed" else "red"
+        detail_color = "red" if stage in ("Failed", "Warning") else "gray"
+        _render_block(header, stage, detail, detail_color=detail_color)
+
+    @staticmethod
+    def _handle_action_event(event: "ObservationEvent", profile: "RuntimeLogProfile"):
+        RuntimeConsoleSinkHooker._close_stream_if_needed()
+        action_name = _resolve_action_name(event)
+        action_type = _resolve_action_type(event)
+        agent_name = _resolve_agent_name(event)
+        header = "[ActionLoop]" if _is_action_loop_event(event) else f"[Action-{ action_name }]"
+        if action_type and not _is_action_loop_event(event):
+            header = f"{ header } [type={ action_type }]"
+        if agent_name:
+            header = f"[Agent-{ agent_name }] - { header }"
+        stage = _resolve_action_stage(event)
+        if profile == "simple":
+            detail = event.message or stage
+        else:
+            detail = _stringify_payload(event.payload, indent=2) or _event_detail(event, pretty_payload=True)
+        detail_color = "red" if stage in ("Failed", "Warning") else "gray"
         _render_block(header, stage, detail, detail_color=detail_color)
 
     @staticmethod
@@ -348,7 +525,8 @@ class RuntimeConsoleSinkHooker(EventHooker):
         if execution_id:
             prefix = f"{ prefix } [Execution-{ execution_id }]"
         detail = event.message or event.event_type if profile == "simple" else _event_detail(event, pretty_payload=True)
-        _render_line(prefix, detail, color="yellow" if event.level == "DEBUG" else "gray")
+        color = "red" if event.level in ("WARNING", "ERROR", "CRITICAL") else "yellow" if event.level == "DEBUG" else "gray"
+        _render_line(prefix, detail, color=color)
 
     @staticmethod
     def _handle_generic_event(event: "ObservationEvent"):
@@ -376,10 +554,13 @@ class RuntimeConsoleSinkHooker(EventHooker):
         if family == "model":
             RuntimeConsoleSinkHooker._handle_model_event(event, profile)
             return
-        if family == "tool":
-            RuntimeConsoleSinkHooker._handle_tool_event(event, profile)
-            return
         if family == "triggerflow":
             RuntimeConsoleSinkHooker._handle_trigger_flow_event(event, profile)
+            return
+        if event.event_type.startswith("action."):
+            RuntimeConsoleSinkHooker._handle_action_event(event, profile)
+            return
+        if event.event_type.startswith("tool."):
+            RuntimeConsoleSinkHooker._handle_tool_event(event, profile)
             return
         RuntimeConsoleSinkHooker._handle_generic_event(event)

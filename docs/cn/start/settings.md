@@ -28,6 +28,11 @@ Agently 设置是一个分层 key-value 存储，分三个 scope：
 | `AnthropicCompatible` | Claude requester 的别名 |
 | `plugins.ModelRequester.<Name>` | 完整路径，与上面别名等价 |
 | `debug` | 打开模型请求的流式控制台日志 |
+| `runtime.show_model_logs` | 打开模型请求与响应解析的控制台日志；`True` 等价于 `"simple"` |
+| `runtime.show_action_logs` | 打开 Action Runtime planning 与 execution 的控制台日志；`True` 等价于 `"simple"` |
+| `runtime.show_tool_logs` | `runtime.show_action_logs` 的兼容别名，用于旧工具回路示例 |
+| `runtime.show_trigger_flow_logs` | 打开 TriggerFlow execution / signal 的控制台日志；`True` 等价于 `"simple"` |
+| `runtime.show_runtime_logs` | 打开 request、session、chunk、`runtime.print` 等通用 observation 事件的控制台日志；`True` 等价于 `"simple"` |
 | `runtime.session_id` | 把请求绑定到指定的 session id |
 
 也可以一次传入一个 dict，按 key 合并：
@@ -88,6 +93,17 @@ Agently.set_settings("debug", True)
 ```
 
 打印模型请求的流式日志，用于核验 prompt 槽位、output schema 与重试是否符合预期。
+
+运行时日志也可以按 family 单独打开：
+
+```python
+Agently.set_settings("runtime.show_model_logs", True)
+Agently.set_settings("runtime.show_action_logs", True)
+Agently.set_settings("runtime.show_trigger_flow_logs", True)
+Agently.set_settings("runtime.show_runtime_logs", "detail")
+```
+
+这些开关都接受 `False` / `"off"`、`True` / `"simple"`、`"detail"`。`"simple"` 打印摘要和 warning/error/critical 事件；`"detail"` 打印该 family 的完整 observation 事件。Action loop 事件显示为 `ActionLoop`；具体 `action.*` 事件会显示 action 名称和 `action_type`。`runtime.show_tool_logs` 仍兼容旧代码；当没有显式设置 `runtime.show_action_logs` 时，它会启用同一组 Action Runtime 日志。开始事件显示 `Started`，正常结束显示 `Completed`，只有失败事件或显式失败 payload 才显示 `Failed`。
 
 ## 另见
 

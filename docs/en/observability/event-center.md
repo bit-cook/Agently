@@ -110,6 +110,21 @@ The top-level fields come from `agently.types.data.event.ObservationEvent`. `Run
 
 Event Center keeps compatibility with historical TriggerFlow event prefixes. A subscription to `workflow.execution_started` can receive `triggerflow.execution_started`; a subscription to `trigger_flow.signal` can receive `triggerflow.signal`. Documentation and new code should prefer `triggerflow.*`.
 
+## Action compatibility events
+
+Action Runtime lifecycle events use `action.*` as the primary namespace. When the current Action Runtime branch is tool-compatible, Agently also emits paired `tool.*` compatibility events for existing subscribers and old examples:
+
+| Primary event | Tool compatibility event |
+|---|---|
+| `action.loop_started` | `tool.loop_started` |
+| `action.plan_ready` | `tool.plan_ready` |
+| `action.loop_failed` | `tool.loop_failed` |
+| `action.loop_completed` | `tool.loop_completed` |
+
+Paired compatibility events include `meta.compat_event_alias=True`, `meta.compat_alias_for`, and `meta.primary_event_id` so consumers can deduplicate them from the primary `action.*` event.
+
+Concrete action execution continues to use `action.started`, `action.completed`, and `action.failed`. For tool-backed actions, `payload.action_type` may be `"tool"`; that does not change the event family.
+
 ## Compatibility rules
 
 Observation events are an observation protocol. Agently-DevTools and custom consumers should fail open:

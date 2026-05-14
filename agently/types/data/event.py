@@ -98,6 +98,7 @@ RunKind: TypeAlias = Literal[
     "model_request",
     "workflow_execution",
     "chunk_execution",
+    "action_loop",
     "tool_loop",
     "action",
 ] | str

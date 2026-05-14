@@ -2,7 +2,7 @@ import pytest
 from typing import Any, cast
 
 from agently import Agently
-from agently.core import ExecutionEnvironmentApprovalRequired, ExecutionEnvironmentManager
+from agently.core import ExecutionEnvironmentApprovalRequired, ExecutionEnvironmentError, ExecutionEnvironmentManager
 from agently.types.data import ExecutionEnvironmentRequirement
 from agently.utils import Settings
 
@@ -178,7 +178,7 @@ async def test_execution_environment_release_scope_cleans_handles():
 async def test_execution_environment_missing_provider_raises_stable_error():
     manager = _create_manager()
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(ExecutionEnvironmentError) as exc_info:
         await manager.async_ensure(
             {"kind": "nonexistent_provider_xyz", "scope": "action_call", "resource_key": "nope"},
         )
@@ -220,7 +220,17 @@ async def test_execution_environment_provider_failure_does_not_poison_registry()
     )
 
     class FailingProvider:
+        name = "FailingProvider"
         kind = "python"
+        DEFAULT_SETTINGS: dict[str, Any] = {}
+
+        @staticmethod
+        def _on_register():
+            pass
+
+        @staticmethod
+        def _on_unregister():
+            pass
 
         async def async_ensure(self, *, requirement, policy, existing_handle=None):
             raise RuntimeError("Simulated provider failure")
@@ -236,7 +246,8 @@ async def test_execution_environment_provider_failure_does_not_poison_registry()
     declared = manager.declare(
         {"kind": "python", "scope": "action_call", "resource_key": "fail_test"}
     )
-    requirement_id = declared["requirement_id"]
+    requirement_id = declared.get("requirement_id")
+    assert requirement_id is not None
 
     with pytest.raises(RuntimeError, match="Simulated provider failure"):
         await manager.async_ensure({"kind": "python", "scope": "action_call", "resource_key": "fail_test"})

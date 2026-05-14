@@ -110,6 +110,21 @@ await Agently.async_emit_runtime({
 
 Event Center 会兼容 TriggerFlow 历史事件前缀。订阅 `workflow.execution_started` 可以收到 `triggerflow.execution_started`；订阅 `trigger_flow.signal` 可以收到 `triggerflow.signal`。文档和新代码优先写 `triggerflow.*`。
 
+## Action 兼容事件
+
+Action Runtime 生命周期事件以 `action.*` 作为主命名空间。当当前 Action Runtime 分支兼容 tool 时，Agently 会额外发出配对的 `tool.*` 兼容事件，用于旧订阅者和旧示例：
+
+| 主事件 | tool 兼容事件 |
+|---|---|
+| `action.loop_started` | `tool.loop_started` |
+| `action.plan_ready` | `tool.plan_ready` |
+| `action.loop_failed` | `tool.loop_failed` |
+| `action.loop_completed` | `tool.loop_completed` |
+
+配对兼容事件会带上 `meta.compat_event_alias=True`、`meta.compat_alias_for` 和 `meta.primary_event_id`，方便消费者与主 `action.*` 事件去重。
+
+具体 action 执行仍使用 `action.started`、`action.completed` 和 `action.failed`。对于 tool-backed action，`payload.action_type` 可以是 `"tool"`；这不会改变事件 family。
+
 ## 兼容约束
 
 Observation event 是观测协议。Agently-DevTools 和自定义消费者应按 fail-open 处理：
