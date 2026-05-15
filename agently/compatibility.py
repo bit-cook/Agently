@@ -5,8 +5,8 @@ from typing import Any
 
 
 CURRENT_COMPATIBILITY_SCHEMA_VERSION = 1
-CURRENT_FRAMEWORK_VERSION = "4.1.1.1"
-CURRENT_RELEASE_TRAIN = "2026-05-runtime-env-v1"
+CURRENT_FRAMEWORK_VERSION = "4.1.1"
+CURRENT_RELEASE_TRAIN = "2026-05-companion-v1"
 
 DEVTOOLS_RUNTIME_PROTOCOL = "agently-devtools.observation-runtime.v1"
 SKILLS_AUTHORING_PROTOCOL = "agently-skills.authoring.v1"
@@ -18,7 +18,7 @@ _CURRENT_RELEASE_MANIFEST: dict[str, Any] = {
     "framework": "agently",
     "framework_version": CURRENT_FRAMEWORK_VERSION,
     "release_train": CURRENT_RELEASE_TRAIN,
-    "released_at": "2026-05-12",
+    "released_at": "2026-05-06",
     "notes": (
         "This manifest is the offline compatibility surface for the installed "
         "Agently package. Historical release manifests live in the source "
@@ -34,7 +34,7 @@ _CURRENT_RELEASE_MANIFEST: dict[str, Any] = {
             "repository": "Agently-Skills",
             "authoring_protocol": SKILLS_AUTHORING_PROTOCOL,
             "devtools_guidance_protocol": SKILLS_DEVTOOLS_GUIDANCE_PROTOCOL,
-            "recommended_ref": "release/4.1.1.1",
+            "recommended_ref": "release/4.1.1",
         },
         "docs": {
             "repository": "docs",
