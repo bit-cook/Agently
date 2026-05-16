@@ -19,7 +19,7 @@
     "demo_experiment",
     "docs",
     "examples",
-    "spec_docs"
+    "spec"
   ],
   "pythonVersion": "3.10",
   "typeCheckingMode": "basic",

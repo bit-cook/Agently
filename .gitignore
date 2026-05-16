@@ -159,8 +159,8 @@ demo_*
 # node
 node_modules
 
-# spec_docs
-/spec_docs/
+# local spec workspace, managed by its own nested git repository
+/spec/
 AGENTS.md
 
 # Hidden directories at repo root, except .github
