@@ -77,8 +77,8 @@ def generate_question(agent, field: dict, form_data: dict, hint: str | None = No
                 "hint": hint,
             }
         )
-        .output({"question": ("str", "next question")})
-        .start(ensure_keys=["question"])
+        .output({"question": ("str", "next question", True)})
+        .start()
     )
     return result["question"].strip()
 
@@ -91,8 +91,8 @@ def generate_startup_message(agent) -> str:
             "and explain you are collecting pre-order details. "
             "Keep it warm and under 2 sentences."
         )
-        .output({"message": ("str", "startup welcome message")})
-        .start(ensure_keys=["message"])
+        .output({"message": ("str", "startup welcome message", True)})
+        .start()
     )
     return result["message"].strip()
 
@@ -132,8 +132,8 @@ def classify_intent(agent, field: dict, user_answer: str) -> str:
                 ],
             }
         )
-        .output({"intent": ("str", "intent label")})
-        .start(ensure_keys=["intent"])
+        .output({"intent": ("str", "intent label", True)})
+        .start()
     )
     intent = result["intent"].strip().lower()
     if intent not in {

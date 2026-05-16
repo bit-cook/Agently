@@ -18,12 +18,12 @@ from pathlib import Path
 
 from typing import TYPE_CHECKING, Any, Mapping
 
-from agently.types.data import ErrorInfo, RuntimeEvent
-from agently.types.data.event import matches_runtime_event_type
+from agently.types.data import ErrorInfo, ObservationEvent, RuntimeEvent
+from agently.types.data.event import matches_observation_event_type
 from agently.utils import FunctionShifter
 
 if TYPE_CHECKING:
-    from agently.types.data import EventHook, RunContext, RuntimeEventLevel
+    from agently.types.data import EventHook, ObservationEventLevel, RunContext
     from agently.types.plugins import EventHooker
 
 
@@ -110,17 +110,19 @@ class EventCenter:
             hooker._on_unregister()
         del self._hookers[hooker.name]
 
-    async def async_emit(self, event: "Mapping[str, Any] | RuntimeEvent"):
+    async def async_emit(self, event: "Mapping[str, Any] | ObservationEvent | RuntimeEvent"):
         if isinstance(event, RuntimeEvent):
+            event_object = ObservationEvent.model_validate(event.model_dump())
+        elif isinstance(event, ObservationEvent):
             event_object = event
         else:
             event_data: dict[str, Any] = dict(event)
             if not event_data.get("source"):
                 event_data["source"] = _infer_runtime_source()
-            event_object = RuntimeEvent.model_validate(event_data)
+            event_object = ObservationEvent.model_validate(event_data)
         tasks = []
         for event_types, callback in self._hooks.values():
-            if not matches_runtime_event_type(event_object.event_type, event_types):
+            if not matches_observation_event_type(event_object.event_type, event_types):
                 continue
             coro = FunctionShifter.asyncify(callback)
             tasks.append(asyncio.create_task(coro(event_object)))
@@ -134,15 +136,24 @@ class EventCenter:
         base_meta: dict[str, Any] | None = None,
         base_run: "RunContext | None" = None,
     ):
-        return RuntimeEventEmitter(
+        return ObservationEventEmitter(
             self,
             source if source is not None else _infer_runtime_source(),
             base_meta=base_meta,
             base_run=base_run,
         )
 
+    def create_observation_emitter(
+        self,
+        source: str | None = None,
+        *,
+        base_meta: dict[str, Any] | None = None,
+        base_run: "RunContext | None" = None,
+    ):
+        return self.create_emitter(source, base_meta=base_meta, base_run=base_run)
 
-class RuntimeEventEmitter:
+
+class ObservationEventEmitter:
     def __init__(
         self,
         event_center: EventCenter,
@@ -170,7 +181,7 @@ class RuntimeEventEmitter:
         self,
         event_type: str,
         *,
-        level: "RuntimeEventLevel" = "INFO",
+        level: "ObservationEventLevel" = "INFO",
         message: str | None = None,
         payload: Any = None,
         error: ErrorInfo | BaseException | None = None,
@@ -186,7 +197,7 @@ class RuntimeEventEmitter:
         else:
             final_error = error
         await self._event_center.async_emit(
-            RuntimeEvent(
+            ObservationEvent(
                 event_type=event_type,
                 source=self._source,
                 level=level,
@@ -301,3 +312,7 @@ class RuntimeEventEmitter:
 
         if settings.get("runtime.raise_critical"):
             raise final_critical
+
+
+class RuntimeEventEmitter(ObservationEventEmitter):
+    pass

@@ -54,10 +54,25 @@ def test_in_development_manifest_is_registered_and_protocol_compatible():
 
     assert index["in_development_file"] == "compatibility/in-development.json"
     assert in_development["framework"] == "agently"
-    assert in_development["target_version"] == "4.1.1.1"
+    assert in_development["target_version"] == "4.1.2"
     assert in_development["companions"]["devtools"]["runtime_protocol"] == current["companions"]["devtools"]["runtime_protocol"]
+    assert in_development["companions"]["devtools"]["event_naming"] == {
+        "preferred_event_type": "ObservationEvent",
+        "legacy_event_type": "RuntimeEvent",
+        "legacy_compatibility": "Agently 4.1.x",
+        "replacement_line": "Agently 4.2",
+    }
     assert in_development["companions"]["skills"]["authoring_protocol"] == current["companions"]["skills"]["authoring_protocol"]
     assert (
         in_development["companions"]["skills"]["devtools_guidance_protocol"]
         == current["companions"]["skills"]["devtools_guidance_protocol"]
     )
+    assert in_development["companions"]["skills"]["catalog_generation"] == "v2"
+    assert in_development["companions"]["skills"]["recommended_bundle"] == "app"
+    assert in_development["companions"]["skills"]["legacy_generations"] == [
+        {
+            "generation": "v1",
+            "last_supported_framework_version": "4.1.1",
+            "status": "frozen",
+        }
+    ]

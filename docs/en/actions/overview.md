@@ -17,6 +17,7 @@ This is not the orchestration layer. If you need branches, fan-out, approval, wa
 | Topic | Owns | Does not own |
 |---|---|---|
 | Action Runtime | Planning, action-call normalization, dispatch, action logs | Long-running workflow lifecycle |
+| Agent Component helpers | Business-facing shortcuts such as `enable_python`, `enable_shell`, `enable_workspace` | Provider lifecycle internals |
 | Tools compatibility | `tool_func`, `use_tool`, `use_tools`, `extra.tool_logs` aliases | New extension design |
 | MCP | Loading remote or local MCP tools into the action surface | A separate workflow engine |
 | Sandbox actions | Running code through an `ActionExecutor` backend | General container orchestration |
@@ -30,13 +31,14 @@ Default plugin wiring lives in [`agently/_default_init.py`](../../../agently/_de
 - `ActionFlow`: `TriggerFlowActionFlow`
 - `ActionExecutor`: local function, MCP, Python sandbox, Bash sandbox
 
-The public façade is [`agently/core/Action.py`](../../../agently/core/Action.py). Agent-level mounting lives in [`agently/builtins/agent_extensions/ActionExtension.py`](../../../agently/builtins/agent_extensions/ActionExtension.py). The runnable examples are grouped under [`examples/action_runtime/README.md`](../../../examples/action_runtime/README.md).
+The public façade is [`agently/core/Action.py`](../../../agently/core/Action.py). Agent-level mounting lives in [`agently/builtins/agent_extensions/ActionExtension.py`](../../../agently/builtins/agent_extensions/ActionExtension.py). The runnable examples are grouped under [`examples/action_runtime/README.md`](../../../examples/action_runtime/README.md), with model-backed cookbook patterns under [`examples/cookbook/`](../../../examples/cookbook/).
 
 ## Reading choices
 
 | You need | Read |
 |---|---|
 | New function actions | [Action Runtime](action-runtime.md) |
+| Give an app agent Python, shell, or workspace access | [Action Runtime](action-runtime.md) |
 | Existing code still uses `tool_func` | [Tools Compatibility](tools.md) |
 | Use a local or HTTP MCP server | [MCP](mcp.md) |
 | Route many actions across steps | [TriggerFlow Patterns](../triggerflow/patterns.md) |

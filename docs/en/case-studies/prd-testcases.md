@@ -1,6 +1,6 @@
 ---
 title: PRD → Test Cases
-description: Long structured input + per-section streaming + ensure_keys for a comprehensive test case generator.
+description: Long structured input + per-section streaming + ensure-marked required fields for a comprehensive test case generator.
 keywords: Agently, case study, PRD, test cases, structured output, streaming
 ---
 

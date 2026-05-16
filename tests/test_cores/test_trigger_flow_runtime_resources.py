@@ -4,6 +4,7 @@ from typing import Any, Callable, cast
 import pytest
 
 from agently import TriggerFlow, TriggerFlowEventData, TriggerFlowRuntimeData
+from agently.base import execution_environment
 
 
 def test_trigger_flow_runtime_data_alias_is_exported():
@@ -176,3 +177,60 @@ async def test_trigger_flow_config_round_trip_with_runtime_resources():
         runtime_resources={"renderer": lambda value: value.upper()},
     )
     assert result == {"rendered": "HELLO"}
+
+
+@pytest.mark.asyncio
+async def test_trigger_flow_execution_environment_injects_managed_resource():
+    flow = TriggerFlow()
+
+    async def calculate(data: TriggerFlowRuntimeData):
+        sandbox = data.require_resource("managed_python")
+        assert sandbox is not None
+        data.state.set("calculated", sandbox.run("result = value + 1")["result"])
+
+    flow.to(calculate)
+
+    result = await flow.async_start(
+        41,
+        execution_environments=[
+            {
+                "kind": "python",
+                "scope": "execution",
+                "resource_key": "managed_python",
+                "config": {"base_vars": {"value": 41}},
+            }
+        ],
+    )
+
+    assert result == {"calculated": 42}
+    assert execution_environment.list(scope="execution") == []
+
+
+@pytest.mark.asyncio
+async def test_trigger_flow_save_records_managed_execution_environment_keys():
+    flow = TriggerFlow()
+
+    async def hold_resource(data: TriggerFlowRuntimeData):
+        data.state.set("has_resource", data.require_resource("managed_python") is not None)
+
+    flow.to(hold_resource).end()
+
+    execution = flow.create_execution(
+        auto_close=False,
+        execution_environments=[
+            {
+                "requirement_id": "managed-python-save-test",
+                "kind": "python",
+                "scope": "execution",
+                "resource_key": "managed_python",
+            }
+        ],
+    )
+    await execution.async_start("start", wait_for_result=False)
+    state = execution.save()
+
+    assert "managed_python" in state["managed_resource_keys"]
+    assert "managed-python-save-test" in state["execution_environment_requirement_ids"]
+
+    await execution.async_close()
+    assert execution_environment.list(scope="execution") == []

@@ -10,6 +10,8 @@ keywords: Agently, output, validate, ensure_keys, retry, max_retries
 
 The validation pipeline runs the first time a structured response result is consumed, then caches the outcome on that response result. It has a fixed order, and each step contributes to the same retry budget.
 
+For Agently `4.1.0.1+`, the default authoring path is: mark fixed required leaves directly in `.output(...)` with the third-slot `ensure` flag, then let the runtime compile those flags into `ensure_keys`. Pass `ensure_keys=` manually only when the required path is runtime-dependent, conditional, or easier to express outside the static schema.
+
 ## The pipeline
 
 ```text
@@ -95,7 +97,7 @@ async def check_remote(result, ctx):
 
 ## Context object
 
-The second argument is a read-only `OutputValidateContext` with at least:
+The second argument is an `OutputValidateContext` with at least:
 
 - `value`, `input`, `agent_name`, `response_id`
 - `attempt_index`, `retry_count`, `max_retries`
@@ -103,6 +105,34 @@ The second argument is a read-only `OutputValidateContext` with at least:
 - `response_text`, `raw_text`, `parsed_result`, `result_object`, `typed`, `meta`
 
 Use `ctx.attempt_index` if you want different behavior on later attempts (e.g., loosen the rule on retry).
+
+Treat these fields as observational by default, but `ctx.prompt` and `ctx.settings` are live state objects for the current response-attempt chain. In advanced handlers, if you need to adjust the prompt / options / settings for a **later retry**, you can write back through them inside the validator.
+
+For example, lower sampling parameters on the next retry:
+
+```python
+def check(result, ctx):
+    if result.get("score", 0) < 0.8 and ctx.retry_count < ctx.max_retries:
+        ctx.prompt.set("options", {"temperature": 0.2, "top_p": 0.7})
+        return {"ok": False, "reason": "score too low"}
+    return True
+```
+
+Or change settings:
+
+```python
+def check(result, ctx):
+    if should_switch_mode(result):
+        ctx.settings.set("my_plugin.some_flag", True)
+        return False
+    return True
+```
+
+Two caveats:
+
+- These writes affect **later retries only**. They do not change the current attempt that has already completed.
+- These writes also do **not** leak into later fresh requests. Each new `response` is created from a new prompt/settings snapshot at the request/agent layer, so validator write-backs stay inside the current response's retry chain.
+- Do not rely on mutating `opts = ctx.prompt.get("options", {})` in place. `get()` returns a view/copy; use write APIs such as `ctx.prompt.set(...)`, `ctx.prompt.update(...)`, or `ctx.settings.set(...)` if you need the change to persist.
 
 ## Single execution per response
 
@@ -112,7 +142,7 @@ This means: don't expect to swap validators per consumer. If you need different 
 
 ## Retry events and visibility
 
-Validation contributes two new runtime event types:
+Validation contributes two new observation event types:
 
 - `model.validation_failed` — handler returned a fail
 - `model.validation_error` — handler raised, returned an unsupported value, etc.
@@ -132,7 +162,7 @@ Agently-DevTools consumes these defensively. New event keys are additive and sho
 - `ensure_keys` handles **path presence** (compiled from the `ensure` flag in `.output(...)`).
 - `.validate(...)` handles **value rules** that depend on the actual content.
 
-Use `ensure_keys` for "this field must exist". Use `.validate(...)` for "this field must satisfy this business rule".
+For fixed required leaves, prefer `(TypeExpr, "description", True)` in `.output(...)` rather than manually repeating the same paths in `ensure_keys=`. Use manual `ensure_keys` for conditional or runtime-only paths. Use `.validate(...)` for "this field must satisfy this business rule".
 
 ## Common patterns
 

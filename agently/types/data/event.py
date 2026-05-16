@@ -20,7 +20,8 @@ from typing import Any, Awaitable, Callable, Literal, TypeAlias
 from pydantic import BaseModel, Field, model_validator
 from typing_extensions import TypedDict
 
-RuntimeEventLevel: TypeAlias = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+ObservationEventLevel: TypeAlias = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+RuntimeEventLevel: TypeAlias = ObservationEventLevel
 
 _TRIGGERFLOW_WORKFLOW_SUFFIXES = frozenset(
     {
@@ -87,12 +88,17 @@ def matches_runtime_event_type(event_type: str | None, expected_event_types: set
     aliases = get_triggerflow_event_aliases(event_type)
     return any(expected in aliases for expected in expected_event_types)
 
+
+def matches_observation_event_type(event_type: str | None, expected_event_types: set[str] | None):
+    return matches_runtime_event_type(event_type, expected_event_types)
+
 RunKind: TypeAlias = Literal[
     "agent_turn",
     "request",
     "model_request",
     "workflow_execution",
     "chunk_execution",
+    "action_loop",
     "tool_loop",
     "action",
 ] | str
@@ -122,17 +128,20 @@ class RunContextDict(TypedDict, total=False):
     meta: dict[str, Any]
 
 
-class RuntimeEventDict(TypedDict, total=False):
+class ObservationEventDict(TypedDict, total=False):
     event_id: str
     event_type: str
     source: str
-    level: RuntimeEventLevel
+    level: ObservationEventLevel
     message: str | None
     payload: Any
     error: ErrorInfoDict | BaseException | None
     run: RunContextDict | None
     meta: dict[str, Any]
     timestamp: int
+
+
+RuntimeEventDict: TypeAlias = ObservationEventDict
 
 
 class ErrorInfo(BaseModel):
@@ -230,11 +239,11 @@ class RunContext(BaseModel):
         )
 
 
-class RuntimeEvent(BaseModel):
+class ObservationEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     event_type: str
     source: str = "Agently"
-    level: RuntimeEventLevel = "INFO"
+    level: ObservationEventLevel = "INFO"
     message: str | None = None
     payload: Any = None
     error: ErrorInfo | None = None
@@ -259,4 +268,9 @@ class RuntimeEvent(BaseModel):
         return value
 
 
-EventHook = Callable[[RuntimeEvent], None | Awaitable[None]]
+class RuntimeEvent(ObservationEvent):
+    pass
+
+
+EventHook = Callable[[ObservationEvent], None | Awaitable[None]]
+ObservationEventHook: TypeAlias = EventHook

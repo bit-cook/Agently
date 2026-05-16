@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import uuid
 import warnings
 from typing import (
     TYPE_CHECKING,
@@ -43,6 +44,15 @@ from agently.types.data import (
     ActionResult,
     ActionRunContext,
     ActionSpec,
+    ExecutionEnvironmentHandle,
+    ExecutionEnvironmentPolicy,
+    ExecutionEnvironmentRequirement,
+    ActionArtifact,
+)
+from agently.core.ExecutionEnvironment import (
+    ExecutionEnvironmentApprovalDenied,
+    ExecutionEnvironmentApprovalRequired,
+    ExecutionEnvironmentError,
 )
 from agently.types.plugins import (
     ActionExecutionHandler,
@@ -282,6 +292,96 @@ class ActionDispatcher:
         result.setdefault("executor_type", str(spec.get("executor_type", "")))
         return cast(ActionResult, result)
 
+    @staticmethod
+    def _to_execution_environment_policy(policy: ActionPolicy) -> ExecutionEnvironmentPolicy:
+        keys = {
+            "approval_mode",
+            "workspace_roots",
+            "path_allowlist",
+            "path_denylist",
+            "allowed_cmd_prefixes",
+            "network_mode",
+            "timeout_seconds",
+            "max_output_bytes",
+            "read_only",
+            "allow_create",
+            "allow_update",
+            "allow_delete",
+        }
+        return cast(ExecutionEnvironmentPolicy, {key: policy[key] for key in keys if key in policy})
+
+    def _resolve_execution_environment_owner_id(
+        self,
+        settings: Settings,
+        requirement: ExecutionEnvironmentRequirement,
+    ):
+        if requirement.get("owner_id"):
+            return str(requirement.get("owner_id", ""))
+        configured = settings.get("execution_environment.owner_id", None)
+        if isinstance(configured, str) and configured:
+            return configured
+        session_id = settings.get("runtime.session_id", None)
+        if isinstance(session_id, str) and session_id:
+            return session_id
+        return self.registry.name or "Action"
+
+    def _prepare_execution_environment_requirements(
+        self,
+        *,
+        spec: ActionSpec,
+        settings: Settings,
+        policy: ActionPolicy,
+    ):
+        requirements = spec.get("execution_environments", [])
+        if not isinstance(requirements, list):
+            return []
+        prepared: list[ExecutionEnvironmentRequirement] = []
+        action_policy = self._to_execution_environment_policy(policy)
+        for requirement in requirements:
+            if not isinstance(requirement, dict):
+                continue
+            prepared_requirement = cast(ExecutionEnvironmentRequirement, dict(requirement))
+            requirement_policy = dict(prepared_requirement.get("policy", {}))
+            requirement_policy.update(action_policy)
+            prepared_requirement["policy"] = cast(ExecutionEnvironmentPolicy, requirement_policy)
+            prepared_requirement.setdefault("scope", "action_call")
+            prepared_requirement.setdefault("owner_id", self._resolve_execution_environment_owner_id(settings, prepared_requirement))
+            prepared_requirement.setdefault("resource_key", str(spec.get("action_id", prepared_requirement.get("kind", ""))))
+            prepared.append(prepared_requirement)
+        return prepared
+
+    def _execution_environment_error_result(
+        self,
+        *,
+        spec: ActionSpec,
+        action_call: ActionCall,
+        status: str,
+        error: str,
+        approval: ActionApproval | None = None,
+    ) -> ActionResult:
+        action_id = str(spec.get("action_id", ""))
+        action_input = action_call.get("action_input", {})
+        if not isinstance(action_input, dict):
+            action_input = {}
+        return cast(ActionResult, {
+            "ok": False,
+            "status": status,
+            "purpose": str(action_call.get("purpose", f"Use { action_id }")),
+            "action_id": action_id,
+            "tool_name": str(spec.get("name", action_id)),
+            "kwargs": dict(action_input),
+            "todo_suggestion": str(action_call.get("todo_suggestion", "")),
+            "next": str(action_call.get("next", action_call.get("todo_suggestion", ""))),
+            "success": False,
+            "result": None,
+            "data": None,
+            "approval": approval or {},
+            "error": error,
+            "expose_to_model": bool(spec.get("expose_to_model", True)),
+            "side_effect_level": cast(Any, spec.get("side_effect_level", "read")),
+            "executor_type": str(spec.get("executor_type", "")),
+        })
+
     async def async_execute(
         self,
         action_id: str,
@@ -377,6 +477,75 @@ class ActionDispatcher:
                 "executor_type": str(spec.get("executor_type", "")),
             }
 
+        from agently.base import execution_environment
+
+        ensured_handles: list[ExecutionEnvironmentHandle] = []
+        environment_resources: dict[str, Any] = {}
+        environment_handles: dict[str, ExecutionEnvironmentHandle] = {}
+        try:
+            for requirement in self._prepare_execution_environment_requirements(
+                spec=spec,
+                settings=execution_settings,
+                policy=policy,
+            ):
+                handle = await execution_environment.async_ensure(
+                    requirement,
+                    owner_id=str(requirement.get("owner_id", "")),
+                )
+                ensured_handles.append(handle)
+                resource_key = str(handle.get("resource_key", requirement.get("resource_key", "")))
+                if resource_key:
+                    environment_handles[resource_key] = handle
+                    environment_resources[resource_key] = handle.get("resource")
+            if environment_handles:
+                action_call["execution_environment_handles"] = environment_handles
+                action_call["execution_environment_resources"] = environment_resources
+        except ExecutionEnvironmentApprovalRequired as error:
+            for handle in ensured_handles:
+                await execution_environment.async_release(handle)
+            approval: ActionApproval = {
+                "required": True,
+                "reason": error.code,
+                "approval_mode": str(error.payload.get("policy", {}).get("approval_mode", "auto")),
+                "missing_permissions": [error.code],
+                "suggested_policy": cast(ActionPolicy, error.payload.get("policy", {})),
+                "message": str(error),
+            }
+            return self._execution_environment_error_result(
+                spec=spec,
+                action_call=action_call,
+                status="approval_required",
+                error=str(error),
+                approval=approval,
+            )
+        except ExecutionEnvironmentApprovalDenied as error:
+            for handle in ensured_handles:
+                await execution_environment.async_release(handle)
+            return self._execution_environment_error_result(
+                spec=spec,
+                action_call=action_call,
+                status="blocked",
+                error=str(error),
+            )
+        except ExecutionEnvironmentError as error:
+            for handle in ensured_handles:
+                await execution_environment.async_release(handle)
+            return self._execution_environment_error_result(
+                spec=spec,
+                action_call=action_call,
+                status="error",
+                error=str(error),
+            )
+        except Exception as error:
+            for handle in ensured_handles:
+                await execution_environment.async_release(handle)
+            return self._execution_environment_error_result(
+                spec=spec,
+                action_call=action_call,
+                status="error",
+                error=str(error),
+            )
+
         timeout = policy.get("timeout_seconds", None)
         timeout_seconds = float(timeout) if isinstance(timeout, (int, float)) else 0.0
         try:
@@ -398,6 +567,9 @@ class ActionDispatcher:
                     settings=execution_settings,
                 )
         except asyncio.TimeoutError:
+            for handle in ensured_handles:
+                if handle.get("scope") == "action_call":
+                    await execution_environment.async_release(handle)
             return {
                 "ok": False,
                 "status": "error",
@@ -416,6 +588,9 @@ class ActionDispatcher:
                 "executor_type": str(spec.get("executor_type", "")),
             }
         except Exception as error:
+            for handle in ensured_handles:
+                if handle.get("scope") == "action_call":
+                    await execution_environment.async_release(handle)
             return {
                 "ok": False,
                 "status": "error",
@@ -433,6 +608,10 @@ class ActionDispatcher:
                 "side_effect_level": cast(Any, spec.get("side_effect_level", "read")),
                 "executor_type": str(spec.get("executor_type", "")),
             }
+        finally:
+            for handle in ensured_handles:
+                if handle.get("scope") == "action_call":
+                    await execution_environment.async_release(handle)
 
         result = self._normalize_executor_output(
             spec=spec,
@@ -526,6 +705,7 @@ class Action:
         self.action_dispatcher = ActionDispatcher(self.action_registry, self.settings)
         self.action_funcs: dict[str, Callable[..., Any]] = {}
         self.tool_funcs = self.action_funcs
+        self._action_artifacts: dict[str, dict[str, Any]] = {}
         self._deprecated_action_manager = _DeprecatedActionManagerProxy(self, "action_manager")
         self._deprecated_tool_manager = _DeprecatedActionManagerProxy(self, "tool_manager")
 
@@ -533,12 +713,89 @@ class Action:
         self.runtime = self.action_runtime
         self.action_flow = self._create_action_flow()
         self.flow = self.action_flow
+        self._register_action_artifact_recall_action()
 
         self.plan_and_execute = FunctionShifter.syncify(self.async_plan_and_execute)
         self.generate_action_call = FunctionShifter.syncify(self.async_generate_action_call)
         self.generate_tool_command = FunctionShifter.syncify(self.async_generate_tool_command)
         self.use_action_mcp = FunctionShifter.syncify(self.async_use_action_mcp)
         self.use_mcp = FunctionShifter.syncify(self.async_use_mcp)
+        self.read_action_artifact = FunctionShifter.syncify(self.async_read_action_artifact)
+
+    def _register_action_artifact_recall_action(self):
+        self.register_action(
+            action_id="read_action_artifact",
+            desc=(
+                "Read full raw input, output, code, command, SQL, page, or log content "
+                "from a previous Action call by artifact reference when the execution "
+                "digest is not enough."
+            ),
+            kwargs={
+                "artifact_id": (str, "Artifact id from a previous Action execution digest."),
+                "action_call_id": (str, "Optional Action call id that should own this artifact."),
+            },
+            func=self.async_read_action_artifact,
+            side_effect_level="read",
+            expose_to_model=False,
+            meta={
+                "component": "action_loop_execution_recall",
+                "auto_exposed_after_artifact": True,
+            },
+        )
+        return self
+
+    async def async_read_action_artifact(
+        self,
+        artifact_id: str,
+        action_call_id: str | None = None,
+    ) -> dict[str, Any]:
+        from agently.base import async_emit_runtime
+        from agently.types.data import ObservationEvent
+
+        artifact = self._action_artifacts.get(str(artifact_id))
+        if artifact is None:
+            result = {
+                "ok": False,
+                "status": "not_found",
+                "artifact_id": str(artifact_id),
+                "error": "Action artifact was not found or is no longer retained.",
+            }
+        elif action_call_id and str(artifact.get("action_call_id", "")) != str(action_call_id):
+            result = {
+                "ok": False,
+                "status": "forbidden",
+                "artifact_id": str(artifact_id),
+                "action_call_id": str(action_call_id),
+                "error": "Action artifact does not belong to the requested action_call_id.",
+            }
+        else:
+            result = {
+                "ok": True,
+                "status": "success",
+                "artifact_id": str(artifact_id),
+                "action_call_id": artifact.get("action_call_id", ""),
+                "artifact_type": artifact.get("artifact_type", ""),
+                "label": artifact.get("label", ""),
+                "media_type": artifact.get("media_type", ""),
+                "value": artifact.get("value"),
+                "meta": artifact.get("meta", {}),
+            }
+
+        await async_emit_runtime(
+            ObservationEvent(
+                event_type="action.artifact_read",
+                source="ActionRuntime",
+                level="INFO" if result.get("ok") else "WARNING",
+                message=f"Action artifact '{ artifact_id }' read.",
+                payload={
+                    "artifact_id": str(artifact_id),
+                    "action_call_id": action_call_id,
+                    "status": result.get("status"),
+                    "ok": result.get("ok"),
+                },
+            )
+        )
+        return result
 
     @property
     def action_manager(self):
@@ -588,6 +845,7 @@ class Action:
         replay_safe: bool,
         expose_to_model: bool,
         executor_type: str,
+        execution_environments: list[ExecutionEnvironmentRequirement] | None,
         meta: dict[str, Any] | None,
     ) -> "ActionSpec":
         spec = cast(ActionSpec, {
@@ -603,6 +861,7 @@ class Action:
             "replay_safe": replay_safe,
             "expose_to_model": expose_to_model,
             "executor_type": executor_type,
+            "execution_environments": execution_environments if execution_environments is not None else [],
             "meta": meta if meta is not None else {},
         })
         if returns is not None:
@@ -625,6 +884,7 @@ class Action:
         sandbox_required: bool = False,
         replay_safe: bool = True,
         expose_to_model: bool = True,
+        execution_environments: list[ExecutionEnvironmentRequirement] | None = None,
         meta: dict[str, Any] | None = None,
     ):
         if executor is None:
@@ -646,6 +906,7 @@ class Action:
             replay_safe=replay_safe,
             expose_to_model=expose_to_model,
             executor_type=executor_type,
+            execution_environments=execution_environments,
             meta=meta,
         )
         self.action_registry.register(spec, executor, func=func)
@@ -711,6 +972,387 @@ class Action:
 
     def tool_func(self, func: Callable[P, R]) -> Callable[P, R]:
         return self.action_func(func)
+
+    @staticmethod
+    def _normalize_action_items(actions: Any) -> list[Any]:
+        if isinstance(actions, str) or callable(actions) or hasattr(actions, "register_actions"):
+            return [actions]
+        if isinstance(actions, (list, tuple, set)):
+            return list(actions)
+        return [actions]
+
+    @staticmethod
+    def _normalize_registered_action_ids(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, (list, tuple, set)):
+            return [str(item) for item in value if str(item)]
+        return []
+
+    def use_actions(
+        self,
+        actions: Callable | str | list[str | Callable] | Any,
+        *,
+        tags: str | list[str] | None = None,
+    ):
+        action_ids: list[str] = []
+        for action_item in self._normalize_action_items(actions):
+            register_actions = getattr(action_item, "register_actions", None)
+            if callable(register_actions):
+                action_ids.extend(self._normalize_registered_action_ids(register_actions(self, tags=tags)))
+                continue
+            if isinstance(action_item, str):
+                if not self.action_registry.has(action_item):
+                    raise ValueError(f"Can not find action named '{ action_item }'")
+                action_ids.append(action_item)
+                continue
+            if callable(action_item):
+                action_name = getattr(action_item, "__name__", "")
+                if not action_name:
+                    raise ValueError("Callable action must have a __name__.")
+                if action_name not in self.action_funcs and not self.action_registry.has(action_name):
+                    self.action_func(action_item)
+                action_ids.append(action_name)
+                continue
+            raise TypeError("use_actions() expects action names, callables, or built-in action packages.")
+        if tags and action_ids:
+            self.tag(action_ids, tags)
+        return self
+
+    def use_tools(self, tools: Callable | str | list[str | Callable] | Any, *, tags: str | list[str] | None = None):
+        return self.use_actions(tools, tags=tags)
+
+    _RECALL_ACTION_ID = "read_action_artifact"
+    _INSTRUCTION_HEAVY_EXECUTOR_TYPES = {
+        "bash_sandbox",
+        "python_sandbox",
+        "nodejs",
+        "docker",
+        "sqlite",
+        "browse",
+        "search",
+    }
+    _INSTRUCTION_HEAVY_KWARGS = {
+        "cmd",
+        "command",
+        "python_code",
+        "js_code",
+        "code",
+        "query",
+        "sql",
+        "url",
+    }
+    _SENSITIVE_KEYWORDS = {
+        "api_key",
+        "apikey",
+        "authorization",
+        "cookie",
+        "credential",
+        "header",
+        "password",
+        "secret",
+        "token",
+    }
+
+    @classmethod
+    def _is_sensitive_key(cls, key: Any):
+        lowered = str(key).lower()
+        return any(keyword in lowered for keyword in cls._SENSITIVE_KEYWORDS)
+
+    @staticmethod
+    def _compact_text(value: Any, *, limit: int = 700):
+        text = str(value)
+        if len(text) <= limit:
+            return text
+        return f"{ text[:limit] }... [truncated { len(text) - limit } chars]"
+
+    @classmethod
+    def _compact_value(cls, value: Any, *, limit: int = 700, depth: int = 0):
+        if cls._is_sensitive_key(value) and depth < 0:
+            return "[REDACTED]"
+        if isinstance(value, dict):
+            if depth >= 2:
+                return f"[dict keys={list(value.keys())[:8]}]"
+            compact: dict[str, Any] = {}
+            for index, (key, item) in enumerate(value.items()):
+                if index >= 12:
+                    compact["..."] = f"{ len(value) - index } more keys"
+                    break
+                if cls._is_sensitive_key(key):
+                    compact[str(key)] = "[REDACTED]"
+                else:
+                    compact[str(key)] = cls._compact_value(item, limit=limit, depth=depth + 1)
+            return compact
+        if isinstance(value, (list, tuple, set)):
+            items = list(value)
+            compact_items = [cls._compact_value(item, limit=limit, depth=depth + 1) for item in items[:8]]
+            if len(items) > 8:
+                compact_items.append(f"... { len(items) - 8 } more items")
+            return compact_items
+        if isinstance(value, str):
+            return cls._compact_text(value, limit=limit)
+        if isinstance(value, (int, float, bool)) or value is None:
+            return value
+        return cls._compact_text(value, limit=limit)
+
+    @classmethod
+    def _redaction_report_for_value(cls, value: Any, *, path: str = "") -> list[str]:
+        report: list[str] = []
+        if isinstance(value, dict):
+            for key, item in value.items():
+                item_path = f"{ path }.{ key }" if path else str(key)
+                if cls._is_sensitive_key(key):
+                    report.append(item_path)
+                else:
+                    report.extend(cls._redaction_report_for_value(item, path=item_path))
+        elif isinstance(value, list):
+            for index, item in enumerate(value[:20]):
+                item_path = f"{ path }[{ index }]" if path else f"[{ index }]"
+                report.extend(cls._redaction_report_for_value(item, path=item_path))
+        return report
+
+    @classmethod
+    def _redact_value(cls, value: Any):
+        if isinstance(value, dict):
+            redacted: dict[str, Any] = {}
+            for key, item in value.items():
+                if cls._is_sensitive_key(key):
+                    redacted[str(key)] = "[REDACTED]"
+                else:
+                    redacted[str(key)] = cls._redact_value(item)
+            return redacted
+        if isinstance(value, list):
+            return [cls._redact_value(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(cls._redact_value(item) for item in value)
+        return value
+
+    @classmethod
+    def _safe_json_size(cls, value: Any):
+        try:
+            return len(json.dumps(value, ensure_ascii=False, default=str).encode("utf-8"))
+        except Exception:
+            return len(str(value).encode("utf-8", errors="ignore"))
+
+    def _register_execution_artifact(
+        self,
+        *,
+        action_call_id: str,
+        artifact_type: str,
+        label: str,
+        value: Any,
+        media_type: str = "application/json",
+        meta: dict[str, Any] | None = None,
+    ) -> ActionArtifact:
+        artifact_id = f"act_art_{ uuid.uuid4().hex }"
+        safe_value = self._redact_value(value)
+        preview = self._compact_value(safe_value, limit=500)
+        size = self._safe_json_size(safe_value)
+        stored = {
+            "artifact_id": artifact_id,
+            "action_call_id": action_call_id,
+            "artifact_type": artifact_type,
+            "label": label,
+            "media_type": media_type,
+            "value": safe_value,
+            "meta": meta or {},
+            "size": size,
+        }
+        self._action_artifacts[artifact_id] = stored
+        return {
+            "artifact_id": artifact_id,
+            "action_call_id": action_call_id,
+            "artifact_type": artifact_type,
+            "label": label,
+            "media_type": media_type,
+            "preview": preview,
+            "truncated": size > 500,
+            "full_value_available": True,
+            "available": True,
+            "size": size,
+            "meta": meta or {},
+        }
+
+    def _is_instruction_heavy_record(self, record: "ActionResult"):
+        executor_type = str(record.get("executor_type", ""))
+        if executor_type in self._INSTRUCTION_HEAVY_EXECUTOR_TYPES:
+            return True
+        kwargs = record.get("kwargs", {})
+        if isinstance(kwargs, dict) and any(key in kwargs for key in self._INSTRUCTION_HEAVY_KWARGS):
+            return True
+        action_id = str(record.get("action_id", ""))
+        return action_id in {
+            "run_bash",
+            "run_python",
+            "run_nodejs",
+            "query_sqlite",
+            "write_sqlite",
+            "browse",
+            "search",
+            "search_news",
+            "search_wikipedia",
+            "search_arxiv",
+        }
+
+    def _summarize_action_instruction(self, record: "ActionResult"):
+        kwargs = record.get("kwargs", {})
+        if not isinstance(kwargs, dict):
+            return {}
+        for key in ("cmd", "command", "python_code", "js_code", "code", "query", "sql", "url"):
+            if key in kwargs:
+                return {
+                    "kind": key,
+                    "preview": self._compact_value(kwargs.get(key), limit=900),
+                }
+        return self._compact_value(kwargs, limit=500)
+
+    def _build_execution_digest(
+        self,
+        record: "ActionResult",
+        *,
+        artifact_refs: list[ActionArtifact],
+        redaction_report: list[str],
+    ) -> dict[str, Any]:
+        data = record.get("data", record.get("result"))
+        digest: dict[str, Any] = {
+            "action_call_id": record.get("action_call_id", ""),
+            "action_id": record.get("action_id", ""),
+            "purpose": record.get("purpose", ""),
+            "status": record.get("status", ""),
+            "success": bool(record.get("success", record.get("ok", False))),
+            "executor_type": record.get("executor_type", ""),
+            "instruction": self._summarize_action_instruction(record),
+            "result_preview": self._compact_value(data, limit=900),
+            "artifact_refs": artifact_refs,
+        }
+        error = record.get("error", "")
+        if isinstance(error, str) and error:
+            digest["error"] = self._compact_text(error, limit=700)
+        if redaction_report:
+            digest["redaction_report"] = redaction_report
+        return digest
+
+    def _finalize_action_result(self, result: Any) -> "ActionResult":
+        record = self._normalize_execution_record(result, None, 0) if not isinstance(result, dict) else cast(ActionResult, result)
+        meta = record.get("meta", {})
+        if not isinstance(meta, dict):
+            meta = {}
+        recall_meta = meta.get("execution_recall", {})
+        if isinstance(recall_meta, dict) and recall_meta.get("finalized") is True:
+            return record
+
+        action_call_id = str(record.get("action_call_id", "") or f"act_call_{ uuid.uuid4().hex }")
+        record["action_call_id"] = action_call_id
+
+        if not self._is_instruction_heavy_record(record):
+            return record
+
+        kwargs = record.get("kwargs", {})
+        data = record.get("data", record.get("result"))
+        artifact_refs: list[ActionArtifact] = []
+        if isinstance(kwargs, dict) and kwargs:
+            artifact_refs.append(
+                self._register_execution_artifact(
+                    action_call_id=action_call_id,
+                    artifact_type="action_input",
+                    label="Action input arguments",
+                    value=kwargs,
+                )
+            )
+        if data is not None:
+            artifact_refs.append(
+                self._register_execution_artifact(
+                    action_call_id=action_call_id,
+                    artifact_type="action_output",
+                    label="Action raw output",
+                    value=data,
+                )
+            )
+
+        existing_artifacts = record.get("artifacts", [])
+        if isinstance(existing_artifacts, list):
+            for artifact in existing_artifacts:
+                if not isinstance(artifact, dict):
+                    continue
+                if artifact.get("artifact_id"):
+                    artifact_refs.append(cast(ActionArtifact, artifact))
+                    continue
+                if "value" in artifact:
+                    artifact_refs.append(
+                        self._register_execution_artifact(
+                            action_call_id=action_call_id,
+                            artifact_type=str(artifact.get("artifact_type", "artifact")),
+                            label=str(artifact.get("label", artifact.get("artifact_type", "artifact"))),
+                            value=artifact.get("value"),
+                            media_type=str(artifact.get("media_type", "application/json")),
+                            meta=cast(dict[str, Any], artifact.get("meta", {})) if isinstance(artifact.get("meta"), dict) else {},
+                        )
+                    )
+
+        redaction_report = self._redaction_report_for_value(kwargs) if isinstance(kwargs, dict) else []
+        meta["execution_recall"] = {
+            "finalized": True,
+            "digest_version": 1,
+            "artifact_count": len(artifact_refs),
+        }
+        record["meta"] = meta
+        record["artifact_refs"] = artifact_refs
+        record["artifacts"] = artifact_refs
+        record["redaction_report"] = redaction_report
+        record["model_digest"] = self._build_execution_digest(
+            record,
+            artifact_refs=artifact_refs,
+            redaction_report=redaction_report,
+        )
+        return record
+
+    @classmethod
+    def _to_model_visible_record(cls, record: "ActionResult") -> "ActionResult":
+        if not isinstance(record, dict):
+            return record
+        digest = record.get("model_digest")
+        if not isinstance(digest, dict):
+            return record
+        visible = cast(ActionResult, dict(record))
+        visible["result"] = digest
+        visible["data"] = digest
+        artifact_refs = record.get("artifact_refs", record.get("artifacts", []))
+        visible["artifacts"] = artifact_refs if isinstance(artifact_refs, list) else []
+        return visible
+
+    @classmethod
+    def to_model_visible_records(cls, records: list["ActionResult"] | None):
+        if not isinstance(records, list):
+            return []
+        return [cls._to_model_visible_record(record) for record in records]
+
+    def _with_action_artifact_recall_action(
+        self,
+        action_list: list[dict[str, Any]],
+        records: list["ActionResult"] | None,
+    ):
+        if not isinstance(records, list):
+            return action_list
+        has_artifact_refs = any(
+            isinstance(record, dict)
+            and (
+                isinstance(record.get("artifact_refs"), list)
+                and len(record.get("artifact_refs", [])) > 0
+                or isinstance(record.get("artifacts"), list)
+                and any(isinstance(item, dict) and item.get("artifact_id") for item in record.get("artifacts", []))
+            )
+            for record in records
+        )
+        if not has_artifact_refs:
+            return action_list
+        if any(item.get("action_id") == self._RECALL_ACTION_ID for item in action_list if isinstance(item, dict)):
+            return action_list
+        recall_spec = self.action_registry.get_spec(self._RECALL_ACTION_ID)
+        if recall_spec is None:
+            return action_list
+        return [*action_list, dict(recall_spec, expose_to_model=True)]
 
     def _iter_action_ids(self, tags: str | list[str] | None = None, *, expose_only: bool = True):
         if tags is None:
@@ -832,7 +1474,7 @@ class Action:
         todo_suggestion: str = "",
         next_value: str = "",
     ):
-        return await self.action_dispatcher.async_execute(
+        result = await self.action_dispatcher.async_execute(
             name,
             kwargs,
             settings=settings,
@@ -842,9 +1484,10 @@ class Action:
             todo_suggestion=todo_suggestion,
             next_value=next_value,
         )
+        return self._finalize_action_result(result)
 
     def execute_action(self, name: str, kwargs: dict[str, Any], **kwargs_options):
-        return self.action_dispatcher.execute(name, kwargs, **kwargs_options)
+        return FunctionShifter.syncify(self.async_execute_action)(name, kwargs, **kwargs_options)
 
     async def async_call_action(self, name: str, kwargs: dict[str, Any]) -> Any:
         if not self.action_registry.has(name):
@@ -905,6 +1548,17 @@ class Action:
                     sandbox_required=sandbox_required,
                     replay_safe=replay_safe,
                     expose_to_model=expose_to_model,
+                    execution_environments=cast(list[ExecutionEnvironmentRequirement], [
+                        {
+                            "requirement_id": f"mcp:{ tool.name }",
+                            "kind": "mcp",
+                            "scope": "agent",
+                            "resource_key": tool.name,
+                            "config": {"transport": transport},
+                            "policy": cast(ExecutionEnvironmentPolicy, default_policy or {}),
+                            "approval_required": approval_required,
+                        }
+                    ]),
                 )
         return self
 
@@ -939,6 +1593,20 @@ class Action:
             side_effect_level="exec",
             sandbox_required=True,
             expose_to_model=expose_to_model,
+            execution_environments=cast(list[ExecutionEnvironmentRequirement], [
+                {
+                    "requirement_id": f"python:{ action_id }",
+                    "kind": "python",
+                    "scope": "action_call",
+                    "resource_key": action_id,
+                    "config": {
+                        "preset_objects": preset_objects,
+                        "base_vars": base_vars,
+                        "allowed_return_types": allowed_return_types,
+                    },
+                    "policy": cast(ExecutionEnvironmentPolicy, default_policy or {}),
+                }
+            ]),
         )
         return self
 
@@ -975,6 +1643,154 @@ class Action:
             side_effect_level="exec",
             sandbox_required=True,
             expose_to_model=expose_to_model,
+            execution_environments=cast(list[ExecutionEnvironmentRequirement], [
+                {
+                    "requirement_id": f"bash:{ action_id }",
+                    "kind": "bash",
+                    "scope": "action_call",
+                    "resource_key": action_id,
+                    "config": {
+                        "allowed_cmd_prefixes": allowed_cmd_prefixes,
+                        "allowed_workdir_roots": allowed_workdir_roots,
+                        "timeout": timeout,
+                        "env": env,
+                    },
+                    "policy": cast(ExecutionEnvironmentPolicy, default_policy or {}),
+                }
+            ]),
+        )
+        return self
+
+    def register_nodejs_action(
+        self,
+        *,
+        action_id: str = "run_nodejs",
+        desc: str = "Execute JavaScript with Node.js inside a managed execution environment.",
+        tags: str | list[str] | None = None,
+        default_policy: "ActionPolicy | None" = None,
+        expose_to_model: bool = False,
+        node_binary: str = "node",
+        cwd: str | None = None,
+        timeout: int = 20,
+        env: dict[str, str] | None = None,
+    ):
+        self.register_action(
+            action_id=action_id,
+            desc=desc,
+            kwargs={
+                "js_code": (str, "JavaScript code to execute with Node.js."),
+                "args": ("list[str]", "Optional command-line arguments."),
+            },
+            executor=self._create_executor("NodeJSActionExecutor", timeout=timeout),
+            tags=tags,
+            default_policy=default_policy,
+            side_effect_level="exec",
+            sandbox_required=True,
+            expose_to_model=expose_to_model,
+            execution_environments=cast(list[ExecutionEnvironmentRequirement], [
+                {
+                    "requirement_id": f"node:{ action_id }",
+                    "kind": "node",
+                    "scope": "action_call",
+                    "resource_key": action_id,
+                    "config": {
+                        "node_binary": node_binary,
+                        "cwd": cwd,
+                        "timeout": timeout,
+                        "env": env,
+                    },
+                    "policy": cast(ExecutionEnvironmentPolicy, default_policy or {}),
+                }
+            ]),
+        )
+        return self
+
+    def register_docker_action(
+        self,
+        *,
+        action_id: str = "run_docker",
+        desc: str = "Run a command in a Docker container through a managed execution environment.",
+        tags: str | list[str] | None = None,
+        default_policy: "ActionPolicy | None" = None,
+        expose_to_model: bool = False,
+        image: str | None = None,
+        timeout: int = 60,
+        docker_binary: str = "docker",
+        default_args: list[str] | None = None,
+    ):
+        self.register_action(
+            action_id=action_id,
+            desc=desc,
+            kwargs={
+                "image": ("str | None", "Docker image. Defaults to the configured image."),
+                "cmd": ("str | list[str]", "Command to run in the container."),
+                "workdir": ("str | None", "Container working directory."),
+                "env": ("dict[str, str] | None", "Container environment variables."),
+            },
+            executor=self._create_executor("DockerActionExecutor", image=image, timeout=timeout),
+            tags=tags,
+            default_policy=default_policy,
+            side_effect_level="exec",
+            approval_required=True,
+            sandbox_required=True,
+            expose_to_model=expose_to_model,
+            execution_environments=cast(list[ExecutionEnvironmentRequirement], [
+                {
+                    "requirement_id": f"docker:{ action_id }",
+                    "kind": "docker",
+                    "scope": "action_call",
+                    "resource_key": action_id,
+                    "config": {
+                        "docker_binary": docker_binary,
+                        "timeout": timeout,
+                        "default_args": default_args or [],
+                    },
+                    "policy": cast(ExecutionEnvironmentPolicy, default_policy or {}),
+                    "approval_required": True,
+                }
+            ]),
+        )
+        return self
+
+    def register_sqlite_action(
+        self,
+        *,
+        action_id: str = "query_sqlite",
+        desc: str = "Query a SQLite database through a managed execution environment.",
+        tags: str | list[str] | None = None,
+        default_policy: "ActionPolicy | None" = None,
+        expose_to_model: bool = False,
+        database: str = ":memory:",
+        read_only: bool = True,
+        uri: bool = False,
+    ):
+        merged_policy: ActionPolicy = cast(ActionPolicy, dict(default_policy or {}))
+        merged_policy.setdefault("read_only", read_only)
+        self.register_action(
+            action_id=action_id,
+            desc=desc,
+            kwargs={
+                "query": (str, "SQLite query to execute."),
+                "params": ("list | dict | None", "Optional SQLite query parameters."),
+            },
+            executor=self._create_executor("SQLiteActionExecutor", read_only=read_only),
+            tags=tags,
+            default_policy=merged_policy,
+            side_effect_level="read" if read_only else "write",
+            expose_to_model=expose_to_model,
+            execution_environments=cast(list[ExecutionEnvironmentRequirement], [
+                {
+                    "requirement_id": f"sqlite:{ action_id }",
+                    "kind": "sqlite",
+                    "scope": "action_call",
+                    "resource_key": action_id,
+                    "config": {
+                        "database": database,
+                        "uri": uri,
+                    },
+                    "policy": cast(ExecutionEnvironmentPolicy, merged_policy),
+                }
+            ]),
         )
         return self
 
@@ -1385,6 +2201,7 @@ class Action:
                 error = str(result) if result is not None else "Action execution failed."
 
             normalized: ActionResult = {
+                "action_call_id": str(record.get("action_call_id", "")),
                 "ok": bool(record.get("ok", success)),
                 "status": cast(Any, status),
                 "purpose": purpose,
@@ -1396,21 +2213,27 @@ class Action:
                 "success": success,
                 "result": result,
                 "data": record.get("data", result),
+                "model_digest": record.get("model_digest", {}),
+                "artifact_refs": record.get("artifact_refs", []),
                 "artifacts": record.get("artifacts", []),
                 "diagnostics": record.get("diagnostics", []),
                 "approval": record.get("approval", {}),
                 "timing": record.get("timing", {}),
                 "meta": record.get("meta", {}),
+                "redaction_report": record.get("redaction_report", []),
                 "error": error,
                 "expose_to_model": bool(record.get("expose_to_model", True)),
                 "side_effect_level": cast(Any, record.get("side_effect_level", "read")),
                 "executor_type": str(record.get("executor_type", "")),
             }
+            if not isinstance(normalized.get("model_digest"), dict) or not normalized.get("model_digest"):
+                normalized.pop("model_digest", None)
             return normalized
 
         result = record
         success = not self.is_execution_error_result(result)
         return {
+            "action_call_id": "",
             "ok": success,
             "status": "success" if success else "error",
             "purpose": fallback_purpose,
@@ -1422,11 +2245,13 @@ class Action:
             "success": success,
             "result": result,
             "data": result,
+            "artifact_refs": [],
             "artifacts": [],
             "diagnostics": [],
             "approval": {},
             "timing": {},
             "meta": {},
+            "redaction_report": [],
             "error": "" if success else str(result),
             "expose_to_model": True,
             "side_effect_level": "read",
@@ -1444,7 +2269,7 @@ class Action:
         normalized: list[ActionResult] = []
         for index, record in enumerate(records):
             command = commands[index] if index < len(commands) else None
-            normalized.append(self._normalize_execution_record(record, command, index))
+            normalized.append(self._finalize_action_result(self._normalize_execution_record(record, command, index)))
         return normalized
 
     @staticmethod
@@ -1464,12 +2289,14 @@ class Action:
                 suffix += 1
 
             used_keys.add(key)
+            model_digest = record.get("model_digest")
+            result_value = model_digest if isinstance(model_digest, dict) else record.get("result", record.get("data"))
             if record.get("success"):
-                action_results[key] = record.get("result", record.get("data"))
+                action_results[key] = result_value
             else:
                 action_results[key] = {
                     "error": record.get("error", "Action execution failed."),
-                    "result": record.get("result", record.get("data")),
+                    "result": result_value,
                     "status": record.get("status", "error"),
                 }
 

@@ -112,13 +112,13 @@ stream timeout 设 `None` 意味着消费者等到 stream 真正关（即 `close
 
 大或 live 的 item 走 runtime stream，不进 state。state 是给 close snapshot 用的 —— 应该小且可序列化。`put_into_stream` 让消费者一来就处理，不撑大 snapshot。
 
-## Runtime events 不属于这条控制流
+## Observation events 不属于这条控制流
 
-Agently 还会通过 Event Center 发出 **runtime event**（运行时事件），例如 TriggerFlow 生命周期、Session 应用、观察日志等。那是框架级观测通道，不是 `emit` / `when` 控制流，也不是 runtime stream 数据流。见 [Event Center](../observability/event-center.md)。
+Agently 还会通过 Event Center 发出 **observation event**（观测事件），例如 TriggerFlow 生命周期、Session 应用、观察日志等。那是框架级观测通道，不是 `emit` / `when` 控制流，也不是 runtime stream 数据流。见 [Event Center](../observability/event-center.md)。
 
 ## 另见
 
 - [模式](patterns.md) —— `when` 是几个流控原语之一
 - [Pause 与 Resume](pause-and-resume.md) —— `continue_with(interrupt_id, payload)` 是恢复路径，与 `emit` 分开
 - [Lifecycle](lifecycle.md) —— `close()` 对 runtime stream 做了什么
-- [Event Center](../observability/event-center.md) —— 框架级 runtime event
+- [Event Center](../observability/event-center.md) —— 框架级 observation event

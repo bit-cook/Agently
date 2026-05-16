@@ -20,7 +20,7 @@ from agently.types.plugins import EventHooker
 from agently.utils import DataFormatter
 
 if TYPE_CHECKING:
-    from agently.types.data import RuntimeEvent
+    from agently.types.data import ObservationEvent
 
 
 def _stringify_payload(payload: Any) -> str:
@@ -46,7 +46,7 @@ class RuntimeStorageSinkHooker(EventHooker):
         pass
 
     @staticmethod
-    async def handler(event: "RuntimeEvent"):
+    async def handler(event: "ObservationEvent"):
         from agently.base import logger, settings
 
         if not should_render_storage_event(event, settings):

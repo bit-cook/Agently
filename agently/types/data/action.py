@@ -18,6 +18,7 @@ from typing import Any, Awaitable, Callable, Literal
 from typing_extensions import TypedDict
 
 from .tool import KwargsType, ReturnType
+from .execution_environment import ExecutionEnvironmentRequirement
 
 ActionStatus = Literal["success", "error", "approval_required", "blocked", "skipped"]
 ActionSideEffectLevel = Literal["read", "write", "exec"]
@@ -48,6 +49,9 @@ class ActionApproval(TypedDict, total=False):
 
 
 class ActionArtifact(TypedDict, total=False):
+    artifact_id: str
+    action_call_id: str
+    label: str
     artifact_type: str
     path: str
     media_type: str
@@ -55,6 +59,8 @@ class ActionArtifact(TypedDict, total=False):
     value: Any
     truncated: bool
     full_value_available: bool
+    available: bool
+    size: int
     meta: dict[str, Any]
 
 
@@ -87,6 +93,7 @@ class ActionSpec(TypedDict, total=False):
     replay_safe: bool
     expose_to_model: bool
     executor_type: str
+    execution_environments: list[ExecutionEnvironmentRequirement]
     meta: dict[str, Any]
 
 
@@ -100,6 +107,8 @@ class ActionCall(TypedDict, total=False):
     next: str
     tool_name: str
     tool_kwargs: dict[str, Any]
+    execution_environment_handles: dict[str, Any]
+    execution_environment_resources: dict[str, Any]
 
 
 class ActionDecision(TypedDict, total=False):
@@ -115,6 +124,7 @@ class ActionDecision(TypedDict, total=False):
 
 
 class ActionResult(TypedDict, total=False):
+    action_call_id: str
     ok: bool
     status: ActionStatus
     purpose: str
@@ -126,11 +136,14 @@ class ActionResult(TypedDict, total=False):
     success: bool
     result: Any
     data: Any
+    model_digest: dict[str, Any]
+    artifact_refs: list[ActionArtifact]
     artifacts: list[ActionArtifact]
     diagnostics: list[ActionDiagnostic]
     approval: ActionApproval
     timing: dict[str, Any]
     meta: dict[str, Any]
+    redaction_report: list[str]
     error: str
     expose_to_model: bool
     side_effect_level: ActionSideEffectLevel

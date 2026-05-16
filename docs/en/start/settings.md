@@ -26,6 +26,11 @@ The first argument to `set_settings(...)` is a dotted path. Common paths:
 | `AnthropicCompatible` | shorthand for the Claude requester |
 | `plugins.ModelRequester.<Name>` | full path; same as the shorthand |
 | `debug` | enable streaming console logs of the model request |
+| `runtime.show_model_logs` | enable console logs for model requests and response parsing; `True` is equivalent to `"simple"` |
+| `runtime.show_action_logs` | enable console logs for Action Runtime planning and execution; `True` is equivalent to `"simple"` |
+| `runtime.show_tool_logs` | compatibility alias for `runtime.show_action_logs` in existing tool-loop examples |
+| `runtime.show_trigger_flow_logs` | enable console logs for TriggerFlow execution / signal events; `True` is equivalent to `"simple"` |
+| `runtime.show_runtime_logs` | enable console logs for request, session, chunk, `runtime.print`, and other generic observation events; `True` is equivalent to `"simple"` |
 | `runtime.session_id` | bind a request to an explicit session id |
 
 You can also pass a single dict and Agently merges by key:
@@ -86,6 +91,17 @@ Agently.set_settings("debug", True)
 ```
 
 Prints the streaming model request log to the console. Useful for verifying that prompt slots, output schema, and retries are doing what you expect.
+
+Runtime logs can also be enabled per family:
+
+```python
+Agently.set_settings("runtime.show_model_logs", True)
+Agently.set_settings("runtime.show_action_logs", True)
+Agently.set_settings("runtime.show_trigger_flow_logs", True)
+Agently.set_settings("runtime.show_runtime_logs", "detail")
+```
+
+Each switch accepts `False` / `"off"`, `True` / `"simple"`, or `"detail"`. `"simple"` prints summaries and warning/error/critical events; `"detail"` prints the full observation event stream for that family. Action loop events render as `ActionLoop`; concrete `action.*` events render with the action name and `action_type`. `runtime.show_tool_logs` remains accepted for existing code and enables the same Action Runtime log family when `runtime.show_action_logs` is not set. Start events render as `Started`, normal completion renders as `Completed`, and only failure events or explicit failure payloads render as `Failed`.
 
 ## See also
 

@@ -67,15 +67,19 @@ from .response import (
 )
 
 from .event import (
+    ObservationEventLevel,
     RuntimeEventLevel,
     RunKind,
     ErrorInfoDict,
     RunContextDict,
+    ObservationEventDict,
     RuntimeEventDict,
     ErrorInfo,
     RunContext,
+    ObservationEvent,
     RuntimeEvent,
     EventHook,
+    ObservationEventHook,
 )
 
 from .tool import (
@@ -101,4 +105,14 @@ from .action import (
     ActionSideEffectLevel,
     ActionSpec,
     ActionStatus,
+)
+
+from .execution_environment import (
+    ExecutionEnvironmentDecision,
+    ExecutionEnvironmentHandle,
+    ExecutionEnvironmentKind,
+    ExecutionEnvironmentPolicy,
+    ExecutionEnvironmentRequirement,
+    ExecutionEnvironmentScope,
+    ExecutionEnvironmentStatus,
 )

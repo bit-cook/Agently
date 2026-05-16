@@ -512,12 +512,24 @@ async def test_tool_runtime_uses_action_runs_under_request_scope():
         await agent.async_get_text()
 
         request_run = next(event.run for event in captured if event.event_type == "request.started")
+        action_loop_start = next(event for event in captured if event.event_type == "action.loop_started")
+        assert action_loop_start.run is not None
+        assert request_run is not None
+        assert action_loop_start.run.parent_run_id == request_run.run_id
+        assert action_loop_start.run.run_kind == "action_loop"
+
         tool_loop_start = next(event for event in captured if event.event_type == "tool.loop_started")
         assert tool_loop_start.run is not None
-        assert request_run is not None
-        assert tool_loop_start.run.parent_run_id == request_run.run_id
+        assert tool_loop_start.run.run_id == action_loop_start.run.run_id
+        assert tool_loop_start.meta.get("compat_event_alias") is True
+        assert tool_loop_start.meta.get("compat_alias_for") == "action.loop_started"
+        assert tool_loop_start.meta.get("primary_event_id") == action_loop_start.event_id
 
-        action_events = [event for event in captured if event.event_type.startswith("action.")]
+        action_events = [
+            event
+            for event in captured
+            if event.event_type in {"action.started", "action.completed", "action.failed"}
+        ]
         assert [event.event_type for event in action_events] == [
             "action.started",
             "action.completed",
@@ -525,7 +537,7 @@ async def test_tool_runtime_uses_action_runs_under_request_scope():
         action_run = action_events[0].run
         assert action_run is not None
         assert action_run.run_kind == "action"
-        assert action_run.parent_run_id == tool_loop_start.run.run_id
+        assert action_run.parent_run_id == action_loop_start.run.run_id
         assert action_run.meta.get("action_type") == "tool"
     finally:
         Agently.event_center.unregister_hook(hook_name)

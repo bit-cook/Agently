@@ -12,6 +12,7 @@ from agently.compatibility import (
 _RUNTIME_LOG_KEYS = (
     "debug",
     "runtime.show_model_logs",
+    "runtime.show_action_logs",
     "runtime.show_tool_logs",
     "runtime.show_trigger_flow_logs",
     "runtime.show_runtime_logs",
@@ -158,6 +159,7 @@ def test_agently_set_debug_mapping_profiles():
         Agently.set_settings("debug", True)
         assert Agently.settings["debug"] == "simple"
         assert Agently.settings["runtime.show_model_logs"] == "simple"
+        assert Agently.settings["runtime.show_action_logs"] == "simple"
         assert Agently.settings["runtime.show_tool_logs"] == "simple"
         assert Agently.settings["runtime.show_trigger_flow_logs"] == "simple"
         assert Agently.settings["runtime.show_runtime_logs"] == "simple"
@@ -166,12 +168,14 @@ def test_agently_set_debug_mapping_profiles():
         Agently.set_settings("debug", "detail")
         assert Agently.settings["debug"] == "detail"
         assert Agently.settings["runtime.show_model_logs"] == "detail"
+        assert Agently.settings["runtime.show_action_logs"] == "detail"
         assert Agently.settings["runtime.show_runtime_logs"] == "detail"
         assert logging.getLogger("httpx").level == logging.INFO
 
         Agently.set_settings("debug", False)
         assert Agently.settings["debug"] == "off"
         assert Agently.settings["runtime.show_model_logs"] == "off"
+        assert Agently.settings["runtime.show_action_logs"] == "off"
         assert Agently.settings["runtime.show_tool_logs"] == "off"
         assert Agently.settings["runtime.show_trigger_flow_logs"] == "off"
         assert Agently.settings["runtime.show_runtime_logs"] == "off"
@@ -190,6 +194,7 @@ def test_agently_load_settings_applies_debug_mapping(tmp_path):
 
         assert Agently.settings["debug"] == "detail"
         assert Agently.settings["runtime.show_model_logs"] == "detail"
+        assert Agently.settings["runtime.show_action_logs"] == "detail"
         assert Agently.settings["runtime.show_tool_logs"] == "detail"
         assert Agently.settings["runtime.show_trigger_flow_logs"] == "detail"
         assert Agently.settings["runtime.show_runtime_logs"] == "detail"
