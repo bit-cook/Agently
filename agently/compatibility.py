@@ -34,7 +34,7 @@ _CURRENT_RELEASE_MANIFEST: dict[str, Any] = {
                 "legacy_compatibility": "Agently 4.1.x",
                 "replacement_line": "Agently 4.2",
             },
-            "recommended_version_specifier": ">=0.1.3,<0.2.0",
+            "recommended_version_specifier": ">=0.1.4,<0.2.0",
         },
         "skills": {
             "repository": "Agently-Skills",
