@@ -8,7 +8,6 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-import uuid
 import asyncio
 from typing import Sequence, TYPE_CHECKING
 
@@ -24,7 +23,15 @@ from .._async_utils import gather_cancel_on_error
 
 class TriggerFlowForEachProcess(TriggerFlowBaseProcess):
     def for_each(self, *, concurrency: int | None = None):
-        for_each_id = uuid.uuid4().hex
+        for_each_id = self._blue_print.make_stable_identity_digest(
+            {
+                "kind": "for_each",
+                "listen_signals": self._definition_signals,
+                "concurrency": concurrency,
+                "parent_group_id": self._definition_group_id,
+                "parent_group_kind": self._definition_group_kind,
+            },
+        )
         for_each_block_data = TriggerFlowBlockData(
             outer_block=self._block_data,
             data={

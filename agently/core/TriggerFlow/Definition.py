@@ -70,10 +70,10 @@ def build_callable_ref(
     is_lambda = raw_name == "<lambda>"
     name = explicit_name if explicit_name is not None else raw_name
 
-    if is_lambda:
-        kind = "anonymous"
-    elif explicit_name is not None:
+    if explicit_name is not None:
         kind = "registered"
+    elif is_lambda:
+        kind = "anonymous"
     elif raw_name:
         kind = "inspected"
     else:
@@ -205,8 +205,6 @@ class TriggerFlowDefinition:
         parent_group_kind: str | None = None,
     ):
         operator_id = str(id) if id is not None else uuid.uuid4().hex
-        if operator_id in self._operator_index:
-            raise ValueError(f"TriggerFlow operator '{ operator_id }' already exists.")
         operator = {
             "id": operator_id,
             "kind": str(kind),
@@ -221,6 +219,13 @@ class TriggerFlowDefinition:
             "parent_group_id": parent_group_id,
             "parent_group_kind": parent_group_kind,
         }
+        if operator_id in self._operator_index:
+            existing = self._operator_index[operator_id]
+            if existing == operator:
+                return existing
+            raise ValueError(
+                f"TriggerFlow operator '{ operator_id }' already exists with a different definition."
+            )
         self.operators.append(operator)
         self._operator_index[operator_id] = operator
         return operator

@@ -19,6 +19,7 @@ import json
 import asyncio
 import contextlib
 import re
+import hashlib
 import yaml
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,10 @@ _CAPTURE_TARGET_SCOPES = frozenset({"input", "runtime_data", "flow_data", "resou
 _CAPTURE_SOURCE_SCOPES = frozenset({"value", "runtime_data", "flow_data", "resources"})
 _WRITE_BACK_TARGET_SCOPES = frozenset({"value", "runtime_data", "flow_data"})
 _WRITE_BACK_SOURCE_SCOPES = frozenset({"result"})
+
+
+def _stable_definition_json(value: Any):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=repr)
 
 
 @dataclass(frozen=True)
@@ -212,6 +217,38 @@ class TriggerFlowBlueprint:
         self._chunk_registry: dict[str, Any] = {}
         self._condition_registry: dict[str, Any] = {}
 
+    def make_stable_identity_digest(self, identity: Any):
+        digest = hashlib.sha1(_stable_definition_json(identity).encode("utf-8")).hexdigest()[:16]
+        return digest
+
+    def make_stable_operator_id(self, kind: str, identity: Any):
+        digest = self.make_stable_identity_digest(identity)
+        return f"{ kind }-{ digest }"
+
+    def _callable_identity(self, callable_ref: dict[str, Any], *, explicit_name: str | None = None):
+        callable_name = callable_ref.get("callable_name")
+        if explicit_name is not None and explicit_name != callable_name:
+            return {
+                "kind": "explicit_name",
+                "name": explicit_name,
+            }
+        if callable_ref.get("kind") in {"registered", "inspected"} and callable_ref.get("name"):
+            return {
+                "kind": "callable",
+                "name": callable_ref.get("name"),
+                "module": callable_ref.get("module"),
+                "qualname": callable_ref.get("qualname"),
+                "file": callable_ref.get("file"),
+                "line": callable_ref.get("line"),
+            }
+        return None
+
+    def _get_chunk_by_id(self, chunk_id: str):
+        for chunk in self.chunks.values():
+            if chunk.id == chunk_id:
+                return chunk
+        return None
+
     def _get_registry(self, registry_type: Literal["chunk", "condition"]):
         return self._chunk_registry if registry_type == "chunk" else self._condition_registry
 
@@ -322,9 +359,27 @@ class TriggerFlowBlueprint:
         explicit_name: str | None = None,
     ):
         callable_ref = self._register_callable("chunk", handler, name=explicit_name, strict=False)
+        stable_identity = self._callable_identity(callable_ref, explicit_name=explicit_name)
+        chunk_id = (
+            self.make_stable_operator_id("chunk", stable_identity)
+            if stable_identity is not None
+            else None
+        )
+        if chunk_id is not None:
+            existing_chunk = self._get_chunk_by_id(chunk_id)
+            if existing_chunk is not None:
+                if existing_chunk._handler is not handler:
+                    raise ValueError(
+                        f"TriggerFlow chunk identity '{ existing_chunk.name }' is already bound to another callable."
+                    )
+                return existing_chunk
+        chunk_name = name if name is not None else (callable_ref.get("name") if stable_identity is not None else None)
+        trigger = f"Chunk[{ chunk_name }]-{ chunk_id }" if chunk_id is not None and chunk_name is not None else None
         chunk = TriggerFlowChunk(
             handler,
-            name=name,
+            chunk_id=chunk_id,
+            name=chunk_name,
+            trigger=trigger,
             callable_ref=callable_ref,
             blueprint=self,
         )
@@ -818,9 +873,25 @@ class TriggerFlowBlueprint:
         self._merge_registries_from_blueprint(trigger_flow._blue_print)
         normalized_capture, _ = self._compile_sub_flow_bindings(capture, mode="capture")
         normalized_write_back, _ = self._compile_sub_flow_bindings(write_back, mode="write_back")
-        sub_flow_instance_id = uuid.uuid4().hex
+        sub_flow_config = trigger_flow._blue_print.definition.to_dict(name=trigger_flow.name)
+        identity_base = {
+            "listen_signals": listen_signals,
+            "name": name,
+        }
+        if name is None:
+            identity_base.update(
+                {
+                    "sub_flow_name": trigger_flow.name,
+                    "sub_flow_config": sub_flow_config,
+                    "capture": normalized_capture,
+                    "write_back": normalized_write_back,
+                    "concurrency": concurrency,
+                }
+            )
+        sub_flow_instance_id = self.make_stable_identity_digest(identity_base)
+        operator_id = f"sub-flow-{ sub_flow_instance_id }"
         operator = self.definition.add_operator(
-            id=f"sub-flow-{ sub_flow_instance_id }",
+            id=operator_id,
             kind="sub_flow",
             name=name if name is not None else trigger_flow.name,
             listen_signals=listen_signals,
@@ -833,7 +904,7 @@ class TriggerFlowBlueprint:
             ],
             options={
                 "sub_flow_name": trigger_flow.name,
-                "sub_flow_config": trigger_flow._blue_print.definition.to_dict(name=trigger_flow.name),
+                "sub_flow_config": sub_flow_config,
                 "capture": normalized_capture,
                 "write_back": normalized_write_back,
                 "concurrency": concurrency,
@@ -861,6 +932,8 @@ class TriggerFlowBlueprint:
         handlers = self._handlers[type]
         if target not in handlers:
             handlers[target] = {}
+        if handler_id in handlers[target]:
+            return handler_id
         for stored_id, stored_handler in handlers[target].items():
             if handler == stored_handler:
                 return stored_id

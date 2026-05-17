@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import uuid
 import copy
-import asyncio
 
 from typing import Callable, Literal, TYPE_CHECKING
 
@@ -35,7 +33,15 @@ class TriggerFlowMatchCaseProcess(TriggerFlowBaseProcess):
         match_block_data = TriggerFlowBlockData(
             outer_block=self._block_data,
         )
-        match_id = uuid.uuid4().hex
+        match_id = self._blue_print.make_stable_identity_digest(
+            {
+                "kind": "match",
+                "mode": mode,
+                "listen_signals": self._definition_signals,
+                "parent_group_id": self._definition_group_id,
+                "parent_group_kind": self._definition_group_kind,
+            },
+        )
         result_signal = self._event_signal(f"Match-{ match_id }-Result", role="continuation")
         route_operator_id = f"match-route-{ match_id }"
         match_block_data.data.update(
@@ -106,21 +112,33 @@ class TriggerFlowMatchCaseProcess(TriggerFlowBaseProcess):
             match_case,
             id=route_operator_id,
         )
-        self._blue_print.definition.add_operator(
-            id=route_operator_id,
-            kind="match_route",
-            name=f"match:{ match_id }",
-            listen_signals=self._definition_signals,
-            emit_signals=[result_signal],
-            options={
-                "mode": mode,
-                "cases": [],
-            },
-            group_id=match_id,
-            group_kind="match",
-            parent_group_id=self._definition_group_id,
-            parent_group_kind=self._definition_group_kind,
-        )
+        try:
+            existing_operator = self._blue_print.definition.get_operator(route_operator_id)
+        except KeyError:
+            self._blue_print.definition.add_operator(
+                id=route_operator_id,
+                kind="match_route",
+                name=f"match:{ match_id }",
+                listen_signals=self._definition_signals,
+                emit_signals=[result_signal],
+                options={
+                    "mode": mode,
+                    "cases": [],
+                },
+                group_id=match_id,
+                group_kind="match",
+                parent_group_id=self._definition_group_id,
+                parent_group_kind=self._definition_group_kind,
+            )
+        else:
+            if (
+                existing_operator.get("kind") != "match_route"
+                or existing_operator.get("options", {}).get("mode") != mode
+                or existing_operator.get("listen_signals") != self._definition_signals
+            ):
+                raise ValueError(
+                    f"TriggerFlow match operator '{ route_operator_id }' already exists with a different definition."
+                )
 
         return self._new(
             trigger_event=self.trigger_event,
@@ -137,7 +155,20 @@ class TriggerFlowMatchCaseProcess(TriggerFlowBaseProcess):
             raise NotImplementedError("Cannot use .case() before .match().")
 
         match_id = self._block_data.data["match_id"]
-        case_id = uuid.uuid4().hex
+        condition_ref = None
+        condition_value = None
+        if callable(condition):
+            condition_ref = self._blue_print._register_callable("condition", condition, strict=False, name=None)
+        else:
+            condition_value = condition
+        case_id = self._blue_print.make_stable_identity_digest(
+            {
+                "kind": "match_case",
+                "match_id": match_id,
+                "condition_ref": condition_ref,
+                "condition_value": condition_value,
+            },
+        )
         self._block_data.data["cases"][case_id] = condition
 
         is_first_case = self._block_data.data["is_first_case"]
@@ -150,27 +181,32 @@ class TriggerFlowMatchCaseProcess(TriggerFlowBaseProcess):
 
         case_trigger = f"Match-{ match_id }-Case-{ case_id }"
         branch_trigger = f"Match-{ match_id }-Case-{ case_id }-Branch"
-        condition_ref = None
-        condition_value = None
-        if callable(condition):
-            condition_ref = self._blue_print._register_callable("condition", condition, strict=False, name=None)
-        else:
-            condition_value = condition
 
         route_operator = self._blue_print.definition.get_operator(self._block_data.data["definition_route_operator_id"])
-        route_operator["options"]["cases"].append(
-            {
-                "case_id": case_id,
-                "route_signal": self._event_signal(case_trigger),
-                "condition_ref": copy.deepcopy(condition_ref) if condition_ref is not None else None,
-                "condition_value": condition_value,
-                "is_else": False,
-            }
+        case_config = {
+            "case_id": case_id,
+            "route_signal": self._event_signal(case_trigger),
+            "condition_ref": copy.deepcopy(condition_ref) if condition_ref is not None else None,
+            "condition_value": condition_value,
+            "is_else": False,
+        }
+        existing_case = next(
+            (case for case in route_operator["options"]["cases"] if case.get("case_id") == case_id),
+            None,
         )
-        route_operator["emit_signals"] = [
-            *route_operator["emit_signals"],
-            self._event_signal(case_trigger),
-        ]
+        if existing_case is None:
+            route_operator["options"]["cases"].append(case_config)
+        elif existing_case != case_config:
+            raise ValueError(
+                f"TriggerFlow match case '{ case_id }' already exists with a different definition."
+            )
+        self._blue_print.definition.set_emit_signals(
+            route_operator["id"],
+            [
+                *route_operator["emit_signals"],
+                self._event_signal(case_trigger),
+            ],
+        )
         self._blue_print.definition.add_operator(
             id=f"match-case-{ case_id }",
             kind="match_case",
@@ -211,11 +247,21 @@ class TriggerFlowMatchCaseProcess(TriggerFlowBaseProcess):
         else_trigger = f"Match-{ match_id }-Else"
         branch_trigger = f"Match-{ match_id }-Else-Branch"
         route_operator = self._blue_print.definition.get_operator(self._block_data.data["definition_route_operator_id"])
-        route_operator["options"]["else_signal"] = self._event_signal(else_trigger)
-        route_operator["emit_signals"] = [
-            *route_operator["emit_signals"],
-            self._event_signal(else_trigger),
-        ]
+        else_signal = self._event_signal(else_trigger)
+        existing_else_signal = route_operator["options"].get("else_signal")
+        if existing_else_signal is None:
+            route_operator["options"]["else_signal"] = else_signal
+        elif existing_else_signal != else_signal:
+            raise ValueError(
+                f"TriggerFlow match else for '{ match_id }' already exists with a different definition."
+            )
+        self._blue_print.definition.set_emit_signals(
+            route_operator["id"],
+            [
+                *route_operator["emit_signals"],
+                else_signal,
+            ],
+        )
         self._blue_print.definition.add_operator(
             id=f"match-else-{ match_id }",
             kind="match_case",
