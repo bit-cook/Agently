@@ -111,7 +111,7 @@ restored.load_blueprint(blueprint)
 服务代码优先使用这种封装形态：
 
 1. chunks 和 conditions 写成模块顶层 named functions。
-2. flow 构建集中在一个很小的 builder/factory 函数里。
+2. 把普通 `TriggerFlow(...)` 对象视为 flow definition surface。
 3. 稳定 live 依赖用 `flow.update_runtime_resources(...)` 注入。
 4. 请求级或租户级依赖用每次 execution 的 `runtime_resources={...}` 注入。
 5. 单次请求的业务中间值放 execution `state`，不要放 `flow_data`。
@@ -154,6 +154,16 @@ snapshot = flow.start(
 ```
 
 这种写法让业务模块尽量轻，同时保留 config / blueprint 兼容性。闭包适合短脚本，但服务化推荐模块顶层 named handlers：更容易测试、注册、导出和重载。
+
+当前行为：TriggerFlow 的 module-safe definition assembly 把 `TriggerFlow(...)`
+本身视为规划面，把 `create_execution(...)` / `start_execution(...)` 视为进入一次运行的边界。
+没有额外的 `TriggerFlow.define(...)` 模式。服务模块可以安全重放同一段 definition assembly：
+named function 保持稳定 stage identity；同一个函数承担两个业务 stage 时，用 `name=...`
+显式区分。
+
+对于运行时由模型生成 To-Do List 或依赖图的模型应用，动态图应按 plan 或 request 局部生成。
+extract / analyze 这类可复用 sub-flow template 可以放在模块级；per-plan executor 应用 task id
+作为动态 stage identity，把 task 结果写入 execution state，并避免修改 main flow definition。
 
 ### 何时用 blueprint
 

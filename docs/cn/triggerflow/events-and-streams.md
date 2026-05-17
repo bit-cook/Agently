@@ -51,6 +51,23 @@ asyncio.run(main())
 - `data.emit_nowait(event, payload)` 是 fire-and-forget 同步版本 —— chunk 不等被触发的 handler 跑完就返回。
 - 多个 `when("Event")` 分支会同时触发。
 
+### Definition 安全 vs runtime signal
+
+TriggerFlow 的 module-safe definition 工作解决的是服务模块被 import、reload 或重复组装时，不要把同一条图边或同一个生成的 `when(...)` gate 声明两遍。
+它不是 runtime signal 去重。
+
+在一次 execution 中，每一次 `emit` / `emit_nowait` 调用仍然是一次业务事件。
+如果某个 chunk 发三次 `Tick`，`when("Tick")` 就应该响应三次。这正是
+`emit_nowait(...)` + `when(...)` 能支撑动态 To-Do executor、依赖 join、side branch 和 reflection loop 的原因。
+
+多依赖 join 使用：
+
+```python
+flow.when({"event": ["done:a", "done:b"]}, mode="and").to(continue_after_both)
+```
+
+join 状态属于单个 execution，不能跨 execution 泄漏，也不应放进共享 flow data。
+
 ### 外部 emit
 
 execution 还 `open` 时外部也可 emit：

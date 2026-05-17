@@ -51,6 +51,26 @@ Mechanics:
 - `data.emit_nowait(event, payload)` is the fire-and-forget sync variant — the chunk doesn't wait for triggered handlers to run before it returns.
 - Multiple `when("Event")` branches all fire on the same event.
 
+### Definition safety vs runtime signals
+
+Module-safe TriggerFlow definition work is about not declaring the same graph
+edge or generated `when(...)` gate twice when service modules are imported,
+reloaded, or assembled repeatedly. It is not runtime signal deduplication.
+
+During one execution, every `emit` / `emit_nowait` call is still a business
+event. If a chunk emits `Tick` three times, `when("Tick")` should react three
+times. This is what makes `emit_nowait(...)` + `when(...)` useful for dynamic
+To-Do executors, dependency joins, side branches, and reflection loops.
+
+For multi-dependency joins, use:
+
+```python
+flow.when({"event": ["done:a", "done:b"]}, mode="and").to(continue_after_both)
+```
+
+The join state belongs to one execution. It must not leak across executions or
+be stored in shared flow data.
+
 ### Emitting from outside
 
 While the execution is `open`, outside code can emit too:

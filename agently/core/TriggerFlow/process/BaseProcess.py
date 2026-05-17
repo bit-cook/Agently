@@ -248,7 +248,12 @@ class TriggerFlowBaseProcess:
                 definition_group_kind=None,
             )
 
-        when_id = uuid.uuid4().hex
+        when_identity = {
+            "kind": "when",
+            "mode": mode,
+            "signals": sorted(signal["id"] for signal in definition_signals),
+        }
+        when_id = self._blue_print.make_stable_identity_digest(when_identity)
         when_trigger = f"When-{ when_id }"
         when_operator_id = f"when-{ when_id }"
         values_template = copy.deepcopy(values)
@@ -421,7 +426,26 @@ class TriggerFlowBaseProcess:
         side_branch: bool = False,
         concurrency: int | None = None,
     ):
-        batch_id = uuid.uuid4().hex
+        normalized_chunks: list[TriggerFlowChunk] = []
+        for chunk in chunks:
+            if isinstance(chunk, tuple):
+                chunk_name = chunk[0]
+                chunk_func = chunk[1]
+                chunk = self._flow_chunk(chunk_name)(chunk_func)
+            else:
+                if callable(chunk):
+                    chunk = self._flow_chunk(chunk)
+            normalized_chunks.append(cast(TriggerFlowChunk, chunk))
+
+        batch_identity = {
+            "kind": "batch",
+            "listen_signals": self._definition_signals,
+            "chunk_ids": [chunk.id for chunk in normalized_chunks],
+            "concurrency": concurrency,
+            "parent_group_id": self._definition_group_id,
+            "parent_group_kind": self._definition_group_kind,
+        }
+        batch_id = self._blue_print.make_stable_identity_digest(batch_identity)
         batch_trigger = f"Batch-{ batch_id }"
         batch_collect_operator_id = f"batch-collect-{ batch_id }"
         results_template: dict[str, Any] = {}
@@ -455,15 +479,7 @@ class TriggerFlowBaseProcess:
             )
             del data._system_runtime_data[state_key]
 
-        for chunk in chunks:
-            if isinstance(chunk, tuple):
-                chunk_name = chunk[0]
-                chunk_func = chunk[1]
-                chunk = self._flow_chunk(chunk_name)(chunk_func)
-            else:
-                if callable(chunk):
-                    chunk = self._flow_chunk(chunk)
-            typed_chunk = cast(TriggerFlowChunk, chunk)
+        for typed_chunk in normalized_chunks:
             triggers_template[typed_chunk.trigger] = False
             trigger_to_chunk_name[typed_chunk.trigger] = typed_chunk.name
             results_template[typed_chunk.name] = None
@@ -655,7 +671,15 @@ class TriggerFlowBaseProcess:
                 if isinstance(result_ready, Event):
                     result_ready.set()
 
-        operator_id = f"result-{ uuid.uuid4().hex }"
+        operator_id = self._blue_print.make_stable_operator_id(
+            "result",
+            {
+                "kind": "result_sink",
+                "listen_signals": self._definition_signals,
+                "group_id": self._definition_group_id,
+                "group_kind": self._definition_group_kind,
+            },
+        )
         self._blue_print.add_handler(
             self.trigger_type,
             self.trigger_event,

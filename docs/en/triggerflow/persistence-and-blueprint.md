@@ -111,7 +111,7 @@ Key constraint: any chunk used in the blueprint must be **registered by the same
 For service code, prefer this packaging shape:
 
 1. Put chunks and conditions in module-level named functions.
-2. Keep flow construction in a small builder/factory function.
+2. Treat the ordinary `TriggerFlow(...)` object as the flow definition surface.
 3. Inject stable live dependencies with `flow.update_runtime_resources(...)`.
 4. Inject request- or tenant-specific dependencies with per-execution
    `runtime_resources={...}`.
@@ -158,6 +158,19 @@ This keeps business modules light while preserving config/blueprint
 compatibility. Closures are fine for short scripts, but named top-level handlers
 are the recommended service shape because they are easier to test, register,
 export, and reload.
+
+Current behavior: TriggerFlow's module-safe definition assembly treats
+`TriggerFlow(...)` itself as the planning surface and `create_execution(...)` /
+`start_execution(...)` as the boundary into one run. There is no separate
+`TriggerFlow.define(...)` mode. Service modules can replay the same definition
+assembly safely: named functions keep stable stage identities, and the same
+function used as two logical stages should be disambiguated with `name=...`.
+
+For model applications that generate a To-Do List or dependency graph at runtime,
+keep that graph per plan or per request. Reusable templates such as extract /
+analyze sub-flows belong at module scope; the per-plan executor should use task
+ids as dynamic stage identities, write task results to execution state, and avoid
+mutating the main flow definition.
 
 ### When to use blueprints
 
