@@ -30,9 +30,10 @@ This handbook is organized as a learning path. If you have not run a single requ
    - [Session Memory](requests/session-memory.md)
    - [Context Engineering](requests/context-engineering.md)
 
-3. **Actions** — model-callable actions, tool compatibility, MCP, and sandbox backends
+3. **Actions** — model-callable actions, built-in capability packages, MCP, managed execution environments, and compatibility surfaces
    - [Actions Overview](actions/overview.md)
    - [Action Runtime](actions/action-runtime.md)
+   - [Execution Environment](actions/execution-environment.md)
    - [Tools Compatibility](actions/tools.md)
    - [MCP](actions/mcp.md)
 

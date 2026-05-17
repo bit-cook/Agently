@@ -38,17 +38,18 @@ LangChain, CrewAI, and AutoGen each solve a real problem — but they optimize f
 | LangChain | Ecosystem breadth, quick prototypes | Untyped outputs, chains hard to unit-test, state management complexity |
 | CrewAI | Role-based agent teams, natural language coordination | Black-box routing, limited observability, hard to debug failures |
 | AutoGen | Conversational multi-agent, research exploration | Unpredictable loops, no built-in state persistence, hard to deploy deterministically |
-| **Agently** | **Engineering-grade AI applications** | Contract-first outputs · testable/pausable/serializable TriggerFlow · full action logs · project-scale config management |
+| **Agently** | **Engineering-grade AI applications** | Contract-first outputs · testable/pausable/serializable TriggerFlow · managed execution environments · action recall · project-scale config management |
 
 Agently is designed from the start for the gap between "works in a notebook" and "runs reliably in production":
 
 - **Stable outputs** — contract-first schema with mandatory field enforcement and automatic retries
 - **Testable orchestration** — every TriggerFlow branch is a plain Python function, independently unit-testable
-- **Observable actions** — every tool/MCP/sandbox call is logged with input, output, and timing
+- **Observable actions** — every function/MCP/sandbox/action call is logged with input, output, timing, and artifact references
 - **Pause, resume, persist** — TriggerFlow executions can be saved to disk and restored after process restart
+- **Managed execution resources** — Python, shell, Node.js, Docker, Browser, SQLite, and MCP resources can be prepared, health-checked, injected, and released by the framework
 - **Project-scale config** — hierarchical YAML/TOML/JSON settings files, env-variable substitution, and scaffolding via `agently-devtools init`
 
-**Agently 4.1 adds a fully rewritten Action Runtime**: a three-layer extensible plugin stack (planning → loop → execution) with native support for local functions, MCP servers, built-in Search/Browse action packages, Python/Bash sandboxes, Node.js runners, SQLite, Docker, and custom backends.
+**Agently 4.1.2 combines the rewritten Action Runtime with Execution Environment v2**: an extensible stack for planning, action loops, execution backends, managed resources, compact action recall, and observable runtime events.
 
 ---
 
@@ -74,9 +75,13 @@ graph TB
         subgraph AGENT_INNER["Per-Agent Components"]
             Prompt["Prompt\ninput · instruct · info · output"]
             Session["Session\nmulti-turn memory · memo · persistence"]
-            Action["Action\nplanning · dispatch · logs"]
+            Action["Action\nplanning · dispatch · recall · logs"]
             Settings2["Hierarchical Settings\n(inherits from global)"]
         end
+    end
+
+    subgraph EXEC_ENV["Execution Environment"]
+        Env["Managed Resources\nMCP · Python · Bash · Node · Docker · Browser · SQLite"]
     end
 
     subgraph MODEL["Model Layer"]
@@ -96,15 +101,16 @@ graph TB
     Global -->|"inherited settings"| AgentInst
     AgentInst --- AGENT_INNER
     AgentInst -->|"build & send"| ModelReq
+    Action -->|"ensure resources"| Env
     ModelReq -->|"HTTP"| LLMAPIs
     LLMAPIs -->|"response stream"| ModelResp
     UserCode -->|"orchestrate"| TF
     TF -->|"trigger agent steps"| AgentInst
 ```
 
-### Action Runtime (v4.1)
+### Action Runtime + Execution Environment (v4.1.2)
 
-Three independently replaceable layers — swap only what you need.
+Action Runtime decides what to call and how to run the action loop. Execution Environment owns lifecycle for managed resources required by an action or workflow step.
 
 ```mermaid
 graph LR
@@ -117,16 +123,23 @@ graph LR
         AF["ActionFlow Plugin\nTriggerFlowActionFlow\n\naction loop · pause/resume · concurrency"]
     end
 
+    subgraph ENV["Execution Environment"]
+        EM["ExecutionEnvironmentManager\nensure · health-check · inject · release"]
+        EP["Providers\nPython · Bash · Node · Docker · Browser · SQLite · MCP"]
+    end
+
     subgraph EXECUTORS["ActionExecutor (replaceable)"]
-        E1["LocalFunctionExecutor\n@action_func / @tool_func"]
-        E2["MCPExecutor\nstdio · http"]
-        E3["PythonSandboxExecutor"]
-        E4["BashSandboxExecutor"]
+        E1["LocalFunctionExecutor\n@action_func"]
+        E2["Search / Browse / Cmd"]
+        E3["MCPExecutor\nstdio · http"]
+        E4["Sandbox / Node / SQLite / Docker"]
         E5["Custom Plugin"]
     end
 
     AExt -->|"delegate planning"| AR
     AR -->|"run action loop"| AF
+    AF -->|"ensure required resources"| EM
+    EM --> EP
     AF -->|"dispatch call"| E1
     AF -->|"dispatch call"| E2
     AF -->|"dispatch call"| E3
@@ -181,29 +194,47 @@ for event in response.get_generator(type="instant"):
         ui.append_example(event.value)            # append each complete example
 ```
 
-### 3. Action Runtime — Functions, MCP, Built-ins, Sandboxes (v4.1)
+### 3. Action Runtime — Functions, Built-ins, Managed Environments (v4.1.2)
 
 Mount any combination. The runtime handles planning, execution, retries, and full structured logs.
 
 ```python
+from agently.builtins.actions import Browse, Search
+
 @agent.action_func
 def search_docs(query: str) -> str:
     """Search internal documentation."""
     return docs_db.search(query)
 
-agent.use_mcp("docs-server", transport="stdio", command=["python", "mcp_server.py"])
-agent.use_sandbox("python")                          # isolated Python execution
-agent.enable_shell(root=".", commands=["pwd", "rg"])  # managed run_bash action
+agent.use_actions(search_docs)
+agent.use_actions(Search(timeout=15, backend="duckduckgo"))
+agent.use_actions(Browse())
 
-agent.use_actions([search_docs, "docs-server", "python"])
+# Common execution abilities should use capability helpers.
+agent.enable_python()                                  # managed run_python action
+agent.enable_shell(root=".", commands=["pwd", "rg"])   # managed run_bash action
+agent.enable_workspace(root=".", read=True, write=False)
 
 response = agent.input("Find auth docs and show a login code example.").get_response()
 
-# Every call: what was invoked, with what args, what it returned
-print(response.result.full_result_data["extra"]["action_logs"])
+# Every call: what was invoked, with what args, what it returned, and artifact refs.
+for record in response.result.full_result_data["extra"]["action_logs"]:
+    print(record["action_id"], record["status"])
 ```
 
-Built-in web capabilities use `from agently.builtins.actions import Search, Browse` and mount with `agent.use_actions(Search(...))` / `agent.use_actions(Browse(...))`. Legacy `tool` APIs (`@agent.tool_func`, `agent.use_tool()`) continue to work and map to the same runtime.
+When full code, shell output, page content, SQL rows, or logs would be too large for the next model round, Agently stores a compact digest in context and keeps the raw payload behind artifact references. Read those artifacts only when the application needs the omitted detail:
+
+```python
+records = agent.get_action_result()
+artifact_ref = records[0]["artifact_refs"][0]
+
+raw = agent.action.read_action_artifact(
+    artifact_id=artifact_ref["artifact_id"],
+    action_call_id=artifact_ref["action_call_id"],
+)
+```
+
+Use `agent.use_mcp(...)` when the capability is an MCP server. Use `agent.register_action(..., executor=..., execution_environments=[...])` when you are building a custom backend with explicit managed resources.
 
 ### 4. TriggerFlow — Serious Workflow Orchestration
 
@@ -211,7 +242,7 @@ TriggerFlow goes well beyond chaining functions. It's a full workflow engine wit
 
 **Execution Lifecycle — `open -> sealed -> closed`**
 
-Agently 4.1.1 makes TriggerFlow execution lifecycle explicit. This is not just a return-value change; it defines when a workflow can still accept outside input, when it is draining, and when its result is frozen:
+The Agently 4.1 line makes TriggerFlow execution lifecycle explicit. This is not just a return-value change; it defines when a workflow can still accept outside input, when it is draining, and when its result is frozen:
 
 ```mermaid
 stateDiagram-v2
@@ -244,22 +275,22 @@ This changes how you should choose entry APIs:
 
 ```python
 execution = flow.create_execution(auto_close=False)
-await execution.async_start(initial_input, wait_for_result=False)
+await execution.async_start(initial_input)
 
 # emit events, resume from checkpoints, or stream runtime updates...
 
 snapshot = await execution.async_close()
 ```
 
-Only execution state enters the close snapshot and `save()` / `load()` checkpoints. Runtime resources such as clients, callbacks, sockets, and file handles must be re-injected after restore. Legacy `.end()` / `set_result()` result sinks remain compatible by writing `"$final_result"` into the snapshot, but new code should treat close snapshots as the completion contract.
+Only execution state enters the close snapshot and `save()` / `load()` checkpoints. Runtime resources such as clients, callbacks, sockets, and file handles must be re-injected after restore. New code should write execution data with `set_state(...)` / `async_set_state(...)` and treat close snapshots as the completion contract.
 
 **Concurrency — `batch` and `for_each`**
 
 Run steps in parallel with a configurable concurrency limit:
 
 ```python
-# Process a list of URLs, max 5 in parallel
-flow.for_each(url_list, concurrency=5).to(fetch_page).to(summarize).end_for_each().to(store_summaries)
+# Process a list emitted by load_urls, max 5 items in parallel
+flow.to(load_urls).for_each(concurrency=5).to(fetch_page).to(summarize).end_for_each().to(store_summaries)
 
 # Fan out to N fixed branches simultaneously
 flow.batch(
@@ -292,7 +323,7 @@ Save execution state to disk, restore it after a process restart — critical fo
 ```python
 # Start execution, save checkpoint immediately
 execution = flow.create_execution(auto_close=False)
-await execution.async_start(initial_input, wait_for_result=False)
+await execution.async_start(initial_input)
 execution.save("checkpoint.json")
 
 # Later — new process, restored state, continue from where it paused
@@ -488,7 +519,7 @@ agently-devtools init my_project    # scaffold a new Agently project
 
 - Runtime observation: `ObservationBridge`, `create_local_observation_app`
 - Examples: `examples/devtools/`
-- Compatibility: `agently-devtools 0.1.x` targets `agently >=4.1.0,<4.2.0`
+- Compatibility: Agently 4.1.2 static release metadata recommends `agently-devtools >=0.1.4,<0.2.0`; the embedded package compatibility code keeps the 4.1.x runtime protocol stable.
 
 ### Integrations
 
@@ -530,7 +561,12 @@ graph TB
     subgraph ACTION_STACK["Action Runtime Plugins (replaceable)"]
         AR["ActionRuntime\nplanning protocol · round control"]
         AF["ActionFlow\nloop shape · pause/resume · concurrency"]
-        AX["ActionExecutor\nLocalFunction · MCP · PythonSandbox · BashSandbox · Custom"]
+        AX["ActionExecutor\nLocalFunction · Search/Browse · MCP · Sandbox · Custom"]
+    end
+
+    subgraph ENV_STACK["Execution Environment"]
+        EE["ExecutionEnvironmentManager\nmanaged resources · health checks · cleanup"]
+        EP["Providers\nPython · Bash · Node · Docker · Browser · SQLite · MCP"]
     end
 
     subgraph TF_EXT["TriggerFlow Extensions"]
@@ -546,9 +582,11 @@ graph TB
     AGENT_EXT --> HOOKS
     HOOKS --> CORE_PIPELINE
     CORE_PIPELINE --> ACTION_STACK
+    ACTION_STACK --> ENV_STACK
     App --> TF_EXT
     CORE_PIPELINE -.->|"emit observation events"| HOOKERS
     ACTION_STACK -.->|"emit observation events"| HOOKERS
+    ENV_STACK -.->|"emit observation events"| HOOKERS
 ```
 
 ### Extension Points at a Glance
@@ -563,6 +601,7 @@ graph TB
 | **ActionRuntime** (plugin) | Replace `AgentlyActionRuntime` | Change planning protocol, call normalization, or round-limit logic |
 | **ActionFlow** (plugin) | Replace `TriggerFlowActionFlow` | Change how the action loop is orchestrated — different concurrency, pause/resume, or branching |
 | **ActionExecutor** (plugin) | Register alongside or replace builtins | Add a new execution backend: cloud functions, RPC, custom sandboxes |
+| **ExecutionEnvironmentProvider** (plugin) | Register a managed resource provider | Add lifecycle, health checks, injection, and cleanup for a new resource kind |
 | **TriggerFlow chunks** | `@flow.chunk` / `register_chunk_handler` | Any Python function or coroutine becomes a composable flow step |
 | **TriggerFlow conditions** | `register_condition_handler` | Custom routing logic between branches |
 | **Observation hookers** | Implement and register a hooker | Attach to the observation event stream for observability, storage, or channel forwarding |
@@ -610,8 +649,8 @@ Agently is a **development framework**, but it's designed to satisfy exactly tho
 | Harness property | How Agently delivers it |
 |:--|:--|
 | **Stable output interfaces** | `output()` schema `True` markers + `ensure_keys` supplements + custom `validate()` handlers + `ensure_all_keys` strict mode |
-| **Observable internals** | `action_logs`, `tool_logs`, DevTools `ObservationBridge`, per-layer structured logs |
-| **Pluggable runtime layers** | ActionRuntime, ActionFlow, and ActionExecutor are independent plugin slots |
+| **Observable internals** | `action_logs`, observation events, DevTools `ObservationBridge`, per-layer structured logs |
+| **Pluggable runtime layers** | ActionRuntime, ActionFlow, ActionExecutor, and ExecutionEnvironmentProvider are independent plugin slots |
 | **Separation of concerns** | Prompt slots, settings hierarchy, Session, and TriggerFlow are distinct composable layers |
 | **Testability** | Each TriggerFlow chunk is a plain function; structured outputs have fixed schemas to assert against |
 
@@ -640,7 +679,7 @@ LangChain is excellent for prototyping and has a broad ecosystem. Agently is opt
 CrewAI and AutoGen are designed around agent teams with natural-language coordination — great for exploration, hard to make deterministic. Agently uses explicit code-based orchestration (TriggerFlow) where every branch is a Python function with clear inputs and outputs, every action call is logged, and executions can be paused, serialized, and resumed — properties that matter when you're shipping to users.
 
 **Q: What is the Action Runtime, and why was it rewritten in v4.1?**
-The old tool system was a single flat layer — enough for simple use cases, but not extensible. The new Action Runtime separates planning ("what to call"), loop orchestration ("how many rounds, with what concurrency"), and execution ("actually run the function/MCP/sandbox"). Each layer is a plugin. You can swap just the sandbox backend without touching the planning logic, or replace just the planning algorithm without changing how loops run.
+The old tool system was a single flat layer — enough for simple use cases, but not extensible. The new Action Runtime separates planning ("what to call"), loop orchestration ("how many rounds, with what concurrency"), execution ("actually run the function/MCP/sandbox"), and managed resource lifecycle through Execution Environment. Each layer is replaceable. You can swap just the execution backend without touching the planning logic, or add a managed resource provider without changing business code.
 
 **Q: How do I deploy an Agently service?**
 Agently doesn't prescribe a deployment model. It provides full async APIs. The `examples/fastapi/` directory covers SSE streaming, WebSocket, and standard POST. See [Agently-Talk-to-Control](https://github.com/AgentEra/Agently-Talk-to-Control) for a complete deployed example.
@@ -656,14 +695,14 @@ Yes. The core framework is open-source under Apache 2.0. Enterprise extensions, 
 |:--|:--|
 | Documentation (EN) | https://agently.tech/docs |
 | Documentation (中文) | https://agently.cn/docs |
-| Quickstart | https://agently.tech/docs/en/quickstart.html |
-| Output Control | https://agently.tech/docs/en/output-control/overview.html |
-| Instant Streaming | https://agently.tech/docs/en/output-control/instant-streaming.html |
-| Session & Memo | https://agently.tech/docs/en/agent-extensions/session-memo/ |
+| Quickstart | https://agently.tech/docs/en/start/quickstart.html |
+| Output Control | https://agently.tech/docs/en/requests/output-control.html |
+| Model Response & Streaming | https://agently.tech/docs/en/requests/model-response.html |
+| Session & Memory | https://agently.tech/docs/en/requests/session-memory.html |
 | TriggerFlow | https://agently.tech/docs/en/triggerflow/overview.html |
-| Actions & MCP | https://agently.tech/docs/en/agent-extensions/tools.html |
-| Prompt Management | https://agently.tech/docs/en/prompt-management/overview.html |
-| Agent Systems Playbook | https://agently.tech/docs/en/agent-systems/overview.html |
+| Actions & Execution Environment | https://agently.tech/docs/en/actions/overview.html |
+| Prompt Management | https://agently.tech/docs/en/requests/prompt-management.html |
+| Agent Systems Playbook | https://agently.tech/docs/en/playbooks/overview.html |
 | Agently Skills | https://github.com/AgentEra/Agently-Skills |
 
 ---
