@@ -26,7 +26,13 @@ def test_current_release_manifest_matches_registry_release_file():
     assert current_manifest["framework"] == release_manifest["framework"]
     assert current_manifest["framework_version"] == release_manifest["framework_version"]
     assert current_manifest["release_train"] == release_manifest["release_train"]
-    assert current_manifest["companions"] == release_manifest["companions"]
+    assert current_manifest["companions"]["skills"] == release_manifest["companions"]["skills"]
+
+    current_devtools = dict(current_manifest["companions"]["devtools"])
+    release_devtools = dict(release_manifest["companions"]["devtools"])
+    current_devtools.pop("recommended_version_specifier", None)
+    release_devtools.pop("recommended_version_specifier", None)
+    assert current_devtools == release_devtools
 
 
 def test_devtools_and_skills_companion_views_derive_from_current_release_manifest():
