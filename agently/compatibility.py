@@ -5,8 +5,8 @@ from typing import Any
 
 
 CURRENT_COMPATIBILITY_SCHEMA_VERSION = 1
-CURRENT_FRAMEWORK_VERSION = "4.1.1"
-CURRENT_RELEASE_TRAIN = "2026-05-companion-v1"
+CURRENT_FRAMEWORK_VERSION = "4.1.2"
+CURRENT_RELEASE_TRAIN = "2026-05-4.1.2"
 
 DEVTOOLS_RUNTIME_PROTOCOL = "agently-devtools.observation-runtime.v1"
 SKILLS_AUTHORING_PROTOCOL = "agently-skills.authoring.v1"
@@ -18,7 +18,7 @@ _CURRENT_RELEASE_MANIFEST: dict[str, Any] = {
     "framework": "agently",
     "framework_version": CURRENT_FRAMEWORK_VERSION,
     "release_train": CURRENT_RELEASE_TRAIN,
-    "released_at": "2026-05-06",
+    "released_at": "2026-05-16",
     "notes": (
         "This manifest is the offline compatibility surface for the installed "
         "Agently package. Historical release manifests live in the source "
@@ -28,13 +28,28 @@ _CURRENT_RELEASE_MANIFEST: dict[str, Any] = {
         "devtools": {
             "companion_package": "agently-devtools",
             "runtime_protocol": DEVTOOLS_RUNTIME_PROTOCOL,
+            "event_naming": {
+                "preferred_event_type": "ObservationEvent",
+                "legacy_event_type": "RuntimeEvent",
+                "legacy_compatibility": "Agently 4.1.x",
+                "replacement_line": "Agently 4.2",
+            },
             "recommended_version_specifier": ">=0.1.3,<0.2.0",
         },
         "skills": {
             "repository": "Agently-Skills",
             "authoring_protocol": SKILLS_AUTHORING_PROTOCOL,
             "devtools_guidance_protocol": SKILLS_DEVTOOLS_GUIDANCE_PROTOCOL,
-            "recommended_ref": "release/4.1.1",
+            "catalog_generation": "v2",
+            "recommended_bundle": "app",
+            "recommended_ref": "main",
+            "legacy_generations": [
+                {
+                    "generation": "v1",
+                    "last_supported_framework_version": "4.1.1",
+                    "status": "frozen",
+                }
+            ],
         },
         "docs": {
             "repository": "docs",
